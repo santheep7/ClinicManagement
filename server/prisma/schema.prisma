@@ -1,0 +1,74 @@
+generator client {
+  provider        = "prisma-client-js"
+  previewFeatures = ["driverAdapters"]
+}
+
+datasource db {
+  provider = "postgresql" // Leave this exactly as is. No url line.
+}
+
+model Clinic {
+  id         String   @id @default(uuid())
+  clinicId   String   @unique
+  name       String
+  address    String
+  phone      String
+  isActive   Boolean  @default(true)
+  
+  // 👇 Added these two fields 👇
+  logo       String?  
+  brandColor String?  
+
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+  users      User[]   @relation("ClinicUsers")
+}
+
+model User {
+  id           String    @id @default(uuid())
+  fullName     String
+  phone        String
+  email        String    @unique
+  employeeId   String    @unique
+  role         String    
+  department   String?
+  passwordHash String
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+
+  // Added relations
+  patients     Patient[] @relation("DoctorPatients")
+  clinicId     String?
+  clinic       Clinic?   @relation("ClinicUsers", fields: [clinicId], references: [id])
+}
+
+model Patient {
+  id               String   @id @default(uuid())
+  queueId          String   @unique
+  name             String
+  age              Int
+  gender           String
+  phone            String
+  address          String
+  department       String
+  reason           String
+  priority         String
+  checkInTime      String
+  status           String   @default("pending")
+  bloodPressure    String   @default("")
+  heartRate        Int      @default(0)
+  temperature      Float    @default(0.0)
+  symptoms         String   @default("")
+  chiefComplaint   String   @default("")
+  primaryDiagnosis String   @default("")
+  notes            String   @default("")
+  followUp         String?
+  tests            String[] @default([])
+  medications      Json     @default("[]")
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+
+  // Changed from String to explicit structural Relation
+  doctorId         String
+  doctor           User     @relation("DoctorPatients", fields: [doctorId], references: [id])
+}

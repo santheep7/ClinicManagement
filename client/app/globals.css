@@ -1,0 +1,500 @@
+@import "tailwindcss";
+/* Inter is loaded via next/font in layout.tsx */
+
+@custom-variant dark (&:where(.dark, .dark *));
+
+@layer base {
+  :root,
+  html.light,
+  html {
+    color-scheme: light;
+    
+    /* Design system tokens (Clinical Precision) */
+    /* Design tokens from DESIGN.md */
+    --background: #f9f9ff; /* surface */
+    --surface: #f9f9ff;
+    --surface-dim: #cfdaf8;
+    --surface-bright: #f9f9ff;
+    --surface-container-lowest: #ffffff;
+    --surface-container-low: #f1f3ff;
+    --surface-container: #e9edff;
+    --surface-container-high: #e1e8ff;
+    --surface-container-highest: #d8e2ff;
+
+    --foreground: #101b31; /* on-surface */
+    --on-surface: #101b31;
+    --on-surface-variant: #434653;
+    --inverse-surface: #263047;
+    --inverse-on-surface: #edf0ff;
+    --outline: #737784;
+    --outline-variant: #c3c6d5;
+    --border: var(--outline-variant);
+    --surface-tint: #2559bd;
+
+    --primary: #00327d;
+    --on-primary: #ffffff;
+    --primary-container: #0047ab;
+    --on-primary-container: #a5bdff;
+    --inverse-primary: #b1c5ff;
+
+    --secondary: #006a6a;
+    --on-secondary: #ffffff;
+    --secondary-container: #90efef;
+    --on-secondary-container: #006e6e;
+
+    --tertiary: #31373d;
+    --on-tertiary: #ffffff;
+    --tertiary-container: #484e55;
+    --on-tertiary-container: #b9bfc7;
+
+    --error: #ba1a1a;
+    --on-error: #ffffff;
+    --error-container: #ffdad6;
+    --on-error-container: #93000a;
+
+    --primary-fixed: #dae2ff;
+    --primary-fixed-dim: #b1c5ff;
+    --on-primary-fixed: #001946;
+    --on-primary-fixed-variant: #00419e;
+
+    --secondary-fixed: #93f2f2;
+    --secondary-fixed-dim: #76d6d5;
+    --on-secondary-fixed: #002020;
+    --on-secondary-fixed-variant: #004f4f;
+
+    --tertiary-fixed: #dde3eb;
+    --tertiary-fixed-dim: #c1c7cf;
+    --on-tertiary-fixed: #161c22;
+    --on-tertiary-fixed-variant: #41474e;
+
+    --background: #f9f9ff;
+    --on-background: #101b31;
+    --surface-variant: #d8e2ff;
+    --color-white-theme: #ffffff;
+
+    --secondary: #006a6a;
+    --on-secondary: #ffffff;
+
+    --tertiary: #31373d;
+    --on-tertiary: #ffffff;
+
+    --color-white-theme: #ffffff;
+    --color-slate-50-theme: #f8fafc;
+    --color-slate-100-theme: #f1f5f9;
+    --color-slate-200-theme: #e2e8f0;
+    
+    --color-zinc-50-theme: #fafafa;
+    --color-zinc-100-theme: #f4f4f5;
+    --color-zinc-200-theme: #e4e4e7;
+    --color-zinc-500-theme: #71717a;
+    --color-zinc-600-theme: #52525b;
+    --color-zinc-700-theme: #3f3f46;
+    --color-zinc-800-theme: #27272a;
+    --color-zinc-900-theme: #18181b;
+    --color-zinc-950-theme: #09090b;
+    --color-slate-950-theme: #020617;
+    --color-black-theme: #000000;
+
+    /* Semantic values for alerts and other specialized blocks */
+    --alert-emerald-bg: #ecfdf5;
+    --alert-emerald-border: #a7f3d0;
+    --alert-emerald-text: #065f46;
+
+    --alert-red-bg: #fef2f2;
+    --alert-red-border: #fecaca;
+    --alert-red-text: #991b1b;
+
+    --alert-amber-bg: #fffbeb;
+    --alert-amber-border: #fde68a;
+    --alert-amber-text: #92400e;
+
+    --alert-sky-bg: #f0f9ff;
+    --alert-sky-border: #bae6fd;
+    --alert-sky-text: #075985;
+    
+    --alert-indigo-bg: #eef2ff;
+    --alert-indigo-border: #e0e7ff;
+    --alert-indigo-text: #3730a3;
+  }
+
+  html.dark,
+  html[data-theme="dark"] {
+    color-scheme: dark;
+    
+    /* Dark mode tokens (Deep Slate base) */
+    /* Dark mode mapping for Clinical Precision */
+    --background: #121D33; /* deep slate */
+    --surface: #263047; /* inverse-surface */
+    --surface-dim: #2b3646;
+    --surface-bright: #2f3b50;
+    --surface-container-lowest: #1a2433;
+    --surface-container-low: #202b3a;
+    --surface-container: #25323f;
+    --surface-container-high: #2a3646;
+    --surface-container-highest: #2f3b50;
+
+    --foreground: #edf0ff; /* inverse-on-surface */
+    --on-surface: #edf0ff;
+    --on-surface-variant: #cbd5e1;
+    --inverse-surface: #f9f9ff;
+    --inverse-on-surface: #101b31;
+    --outline: #c3c6d5;
+    --outline-variant: #737784;
+    --border: var(--outline-variant);
+    --surface-tint: #2559bd;
+
+    --primary: #00327d;
+    --on-primary: #ffffff;
+    --primary-container: #0047ab;
+    --on-primary-container: #a5bdff;
+
+    --secondary: #006a6a;
+    --on-secondary: #ffffff;
+
+    --tertiary: #31373d;
+    --on-tertiary: #ffffff;
+
+    --error: #ba1a1a;
+    --on-error: #ffffff;
+    --error-container: #ffdad6;
+    --on-error-container: #93000a;
+
+    --background: #121D33;
+    --on-background: #edf0ff;
+    --surface-variant: #263047;
+    --color-white-theme: #1e293b;
+
+    --secondary: #006a6a;
+    --on-secondary: #ffffff;
+
+    --tertiary: #31373d;
+    --on-tertiary: #ffffff;
+
+    /* Premium inverted color mapping */
+    --color-white-theme: #1e293b; /* slate-800 */
+    --color-slate-50-theme: #0f172a; /* slate-900 */
+    --color-slate-100-theme: #0f172a; /* slate-900 */
+    --color-slate-200-theme: #334155; /* slate-700 */
+    
+    --color-zinc-50-theme: #0f172a; /* slate-900 */
+    --color-zinc-100-theme: #0f172a; /* slate-900 */
+    --color-zinc-200-theme: #334155; /* slate-700 */
+    --color-zinc-500-theme: #94a3b8; /* slate-400 */
+    --color-zinc-600-theme: #cbd5e1; /* slate-300 */
+    --color-zinc-700-theme: #e2e8f0; /* slate-200 */
+    --color-zinc-800-theme: #f1f5f9; /* slate-100 */
+    --color-zinc-900-theme: #f8fafc; /* slate-50 */
+    --color-zinc-950-theme: #ffffff;
+    --color-slate-950-theme: #ffffff;
+    --color-black-theme: #ffffff;
+
+    --alert-emerald-bg: rgba(6, 95, 70, 0.25);
+    --alert-emerald-border: rgba(167, 243, 208, 0.2);
+    --alert-emerald-text: #34d399;
+
+    --alert-red-bg: rgba(153, 27, 27, 0.25);
+    --alert-red-border: rgba(254, 202, 202, 0.2);
+    --alert-red-text: #f87171;
+
+    --alert-amber-bg: rgba(146, 64, 14, 0.25);
+    --alert-amber-border: rgba(253, 230, 138, 0.2);
+    --alert-amber-text: #fbbf24;
+
+    --alert-sky-bg: rgba(7, 89, 133, 0.25);
+    --alert-sky-border: rgba(186, 230, 253, 0.2);
+    --alert-sky-text: #38bdf8;
+    
+    --alert-indigo-bg: rgba(55, 48, 163, 0.25);
+    --alert-indigo-border: rgba(224, 231, 255, 0.2);
+    --alert-indigo-text: #818cf8;
+  }
+
+  body {
+    background-color: var(--background);
+    color: var(--foreground);
+    font-family: Inter, Arial, Helvetica, sans-serif;
+    transition: background-color 0.25s ease, color 0.25s ease, border-color 0.25s ease;
+  }
+
+  /* Layout tokens */
+  :root {
+    --radius-sm: 0.125rem;
+    --radius: 0.25rem;
+    --radius-md: 0.375rem;
+    --radius-lg: 0.5rem;
+    --radius-xl: 0.75rem;
+    --radius-full: 9999px;
+
+    --space-xs: 4px;
+    --space-sm: 8px;
+    --space-md: 16px;
+    --space-lg: 24px;
+    --space-xl: 32px;
+    --space-gutter: 24px;
+    --space-margin-mobile: 16px;
+    --space-margin-desktop: 32px;
+    --max-width: 1440px;
+  }
+
+  input, textarea, select {
+    background-color: var(--surface);
+    color: var(--foreground);
+    border-color: var(--border);
+    caret-color: var(--foreground);
+    -webkit-text-fill-color: var(--foreground);
+  }
+
+  input::placeholder,
+  textarea::placeholder,
+  select::placeholder {
+    color: var(--color-zinc-500-theme);
+    opacity: 0.8;
+  }
+
+  html.dark input,
+  html.dark textarea,
+  html.dark select,
+  html[data-theme="dark"] input,
+  html[data-theme="dark"] textarea,
+  html[data-theme="dark"] select {
+    background-color: var(--surface) !important;
+    color: var(--foreground) !important;
+    border-color: var(--border) !important;
+    caret-color: var(--foreground) !important;
+    -webkit-text-fill-color: var(--foreground) !important;
+  }
+
+  select option {
+    background-color: var(--color-white-theme);
+    color: var(--foreground);
+  }
+
+  html.dark .bg-white,
+  html.dark .bg-slate-50,
+  html.dark .bg-slate-100,
+  html.dark .bg-zinc-50,
+  html.dark .bg-zinc-100,
+  html.dark .bg-zinc-200,
+  html.dark .bg-indigo-50,
+  html[data-theme="dark"] .bg-white,
+  html[data-theme="dark"] .bg-slate-50,
+  html[data-theme="dark"] .bg-slate-100,
+  html[data-theme="dark"] .bg-zinc-50,
+  html[data-theme="dark"] .bg-zinc-100,
+  html[data-theme="dark"] .bg-zinc-200,
+  html[data-theme="dark"] .bg-indigo-50 {
+    background-color: var(--surface) !important;
+  }
+
+  html.dark .border-zinc-200,
+  html.dark .border-zinc-100,
+  html.dark .border-slate-300,
+  html.dark .border-slate-200,
+  html.dark .border-slate-100,
+  html[data-theme="dark"] .border-zinc-200,
+  html[data-theme="dark"] .border-zinc-100,
+  html[data-theme="dark"] .border-slate-300,
+  html[data-theme="dark"] .border-slate-200,
+  html[data-theme="dark"] .border-slate-100 {
+    border-color: var(--border) !important;
+  }
+
+  html.dark .divide-slate-200 > :not(:last-child),
+  html[data-theme="dark"] .divide-slate-200 > :not(:last-child) {
+    border-color: var(--border) !important;
+  }
+
+  html.dark .text-slate-950,
+  html.dark .text-slate-900,
+  html.dark .text-slate-800,
+  html.dark .text-slate-700,
+  html.dark .text-slate-600,
+  html.dark .text-slate-500,
+  html[data-theme="dark"] .text-slate-950,
+  html[data-theme="dark"] .text-slate-900,
+  html[data-theme="dark"] .text-slate-800,
+  html[data-theme="dark"] .text-slate-700,
+  html[data-theme="dark"] .text-slate-600,
+  html[data-theme="dark"] .text-slate-500,
+  html.dark .text-zinc-900,
+  html.dark .text-zinc-800,
+  html.dark .text-zinc-700,
+  html.dark .text-zinc-600,
+  html.dark .text-zinc-500,
+  html[data-theme="dark"] .text-zinc-900,
+  html[data-theme="dark"] .text-zinc-800,
+  html[data-theme="dark"] .text-zinc-700,
+  html[data-theme="dark"] .text-zinc-600,
+  html[data-theme="dark"] .text-zinc-500 {
+    color: var(--foreground) !important;
+  }
+
+  html.dark .text-slate-600,
+  html.dark .text-slate-500,
+  html[data-theme="dark"] .text-slate-600,
+  html[data-theme="dark"] .text-slate-500,
+  html.dark .text-zinc-600,
+  html.dark .text-zinc-500,
+  html[data-theme="dark"] .text-zinc-600,
+  html[data-theme="dark"] .text-zinc-500 {
+    color: var(--on-surface-variant) !important;
+  }
+
+  /* Specific overrides for alert boxes and tags that use background colors in layout */
+  .bg-emerald-50,
+  .bg-emerald-100 {
+    background-color: var(--alert-emerald-bg) !important;
+  }
+  .border-emerald-200 {
+    border-color: var(--alert-emerald-border) !important;
+  }
+  .text-emerald-700,
+  .text-emerald-800 {
+    color: var(--alert-emerald-text) !important;
+  }
+
+  .bg-red-50,
+  .bg-red-100 {
+    background-color: var(--alert-red-bg) !important;
+  }
+  .border-red-200 {
+    border-color: var(--alert-red-border) !important;
+  }
+  .text-red-700,
+  .text-red-800 {
+    color: var(--alert-red-text) !important;
+  }
+
+  .bg-amber-50,
+  .bg-amber-100 {
+    background-color: var(--alert-amber-bg) !important;
+  }
+  .border-amber-200 {
+    border-color: var(--alert-amber-border) !important;
+  }
+  .text-amber-700,
+  .text-amber-800 {
+    color: var(--alert-amber-text) !important;
+  }
+
+  .bg-sky-50,
+  .bg-sky-100 {
+    background-color: var(--alert-sky-bg) !important;
+  }
+  .border-sky-200 {
+    border-color: var(--alert-sky-border) !important;
+  }
+  .text-sky-700,
+  .text-sky-800 {
+    color: var(--alert-sky-text) !important;
+  }
+  
+  .bg-indigo-50 {
+    background-color: var(--alert-indigo-bg) !important;
+  }
+  .text-indigo-600 {
+    color: var(--alert-indigo-text) !important;
+  }
+
+  /* Handle placeholder colors inside inputs in dark mode */
+  html.dark input::placeholder,
+  html[data-theme="dark"] input::placeholder,
+  html.dark textarea::placeholder,
+  html[data-theme="dark"] textarea::placeholder {
+    color: var(--color-zinc-500-theme) !important;
+    opacity: 0.7;
+  }
+
+  html.dark input,
+  html.dark textarea,
+  html.dark select,
+  html[data-theme="dark"] input,
+  html[data-theme="dark"] textarea,
+  html[data-theme="dark"] select {
+    background-color: var(--surface-container-lowest) !important;
+    color: var(--foreground) !important;
+    border-color: var(--border) !important;
+    caret-color: var(--foreground) !important;
+    -webkit-text-fill-color: var(--foreground) !important;
+  }
+
+  html.dark select option,
+  html[data-theme="dark"] select option {
+    background-color: var(--surface-container-lowest);
+    color: var(--foreground);
+  }
+}
+
+@theme {
+  --color-white: var(--color-white-theme);
+  --color-slate-50: var(--color-slate-50-theme);
+  --color-slate-100: var(--color-slate-100-theme);
+  --color-slate-200: var(--color-slate-200-theme);
+  
+  --color-zinc-50: var(--color-zinc-50-theme);
+  --color-zinc-100: var(--color-zinc-100-theme);
+  --color-zinc-200: var(--color-zinc-200-theme);
+  --color-zinc-500: var(--color-zinc-500-theme);
+  --color-zinc-600: var(--color-zinc-600-theme);
+  --color-zinc-700: var(--color-zinc-700-theme);
+  --color-zinc-800: var(--color-zinc-800-theme);
+  --color-zinc-900: var(--color-zinc-900-theme);
+  --color-zinc-950: var(--color-zinc-950-theme);
+  --color-slate-950: var(--color-slate-950-theme);
+  --color-black: var(--color-black-theme);
+
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --font-sans: var(--font-geist-sans);
+  --font-sans: var(--font-inter);
+  --font-mono: var(--font-geist-mono);
+}
+
+.theme-toggle-wrapper {
+  position: fixed;
+  top: 1rem;
+  right: 1rem;
+  z-index: 50;
+}
+
+.theme-toggle-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 3rem;
+  height: 3rem;
+  border-radius: 9999px;
+  border: 1px solid var(--border);
+  background: var(--surface);
+  color: var(--foreground);
+  cursor: pointer;
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.08);
+  transition: background-color 0.25s ease, color 0.25s ease, transform 0.2s ease, box-shadow 0.2s ease;
+}
+
+.theme-toggle-btn svg {
+  width: 1.2rem;
+  height: 1.2rem;
+}
+
+.theme-toggle-btn:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 14px 36px rgba(0, 0, 0, 0.14);
+}
+
+.theme-toggle-btn:focus-visible {
+  outline: 2px solid #2563eb;
+  outline-offset: 2px;
+}
+
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
