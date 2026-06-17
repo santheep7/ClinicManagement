@@ -30,7 +30,8 @@ export default function Home() {
         const res = await fetch(`${API_BASE_URL}/api/clinics`);
         const data = await res.json();
         if (res.ok && data.clinics) {
-          setActiveClinics(data.clinics);
+          // Only keep clinics the admin has activated
+          setActiveClinics(data.clinics.filter((c: Clinic) => c.isActive === true));
         }
       } catch {
         console.error("Failed to fetch clinics");
@@ -61,6 +62,22 @@ export default function Home() {
   const [siLoading, setSiLoading] = useState(false);
   const [siMessage, setSiMessage] = useState("");
   const [showSiPassword, setShowSiPassword] = useState(false);
+  const [siMatchedClinic, setSiMatchedClinic] = useState<Clinic | null>(null);
+
+  // Debounced lookup: when employee ID typed, fetch their clinic branding
+  useEffect(() => {
+    if (siEmployeeId.trim().length < 3) { setSiMatchedClinic(null); return; }
+    const timer = setTimeout(async () => {
+      try {
+        const res = await fetch(`${API_BASE_URL}/api/auth/clinic-by-employee/${encodeURIComponent(siEmployeeId.trim())}`);
+        const data = await res.json();
+        setSiMatchedClinic(data.clinic || null);
+      } catch {
+        setSiMatchedClinic(null);
+      }
+    }, 400);
+    return () => clearTimeout(timer);
+  }, [siEmployeeId]);
 
   const [suName, setSuName] = useState("");
   const [suPhone, setSuPhone] = useState("");
@@ -201,8 +218,9 @@ export default function Home() {
     finally { setSuLoading(false); }
   }
 
-  // Derive brand color with fallback
-  const brandColor = matchedClinic?.brandColor || "#4f46e5";
+  // Derive brand color — use siMatchedClinic on sign-in, matchedClinic on sign-up
+  const activeClinicForPanel = view === "signIn" ? (siMatchedClinic || matchedClinic) : matchedClinic;
+  const brandColor = activeClinicForPanel?.brandColor || "#4f46e5";
   const brandColorLight = brandColor + "22";
   const brandColorMid = brandColor + "55";
 
@@ -248,12 +266,12 @@ export default function Home() {
           </svg>
 
           {/* Layer 2: Logo — absolutely fills the entire panel as background */}
-          {matchedClinic?.logo && (
+          {activeClinicForPanel?.logo && (
             <>
               {/* Full-panel logo cover */}
               <img
-                src={matchedClinic.logo}
-                alt={`${matchedClinic.name} logo`}
+                src={activeClinicForPanel.logo}
+                alt={`${activeClinicForPanel.name} logo`}
                 className="absolute inset-0 w-full h-full object-cover pointer-events-none"
                 style={{ opacity: 0.18 }}
               />
@@ -268,7 +286,7 @@ export default function Home() {
                   }}
                 >
                   <img
-                    src={matchedClinic.logo}
+                    src={activeClinicForPanel.logo}
                     alt=""
                     className="w-full h-full object-cover"
                   />
@@ -295,7 +313,7 @@ export default function Home() {
             </span>
 
             {/* No-logo fallback centered icon */}
-            {!matchedClinic?.logo && (
+            {!activeClinicForPanel?.logo && (
               <div className="flex-1 flex items-center justify-center">
                 <div
                   className="w-28 h-28 rounded-2xl flex items-center justify-center shadow-lg"
@@ -310,10 +328,10 @@ export default function Home() {
             <div>
               <div className="h-px w-12 mb-5" style={{ background: "rgba(255,255,255,0.35)" }} />
               <h3 className="text-3xl font-extrabold tracking-tight text-white drop-shadow-sm leading-tight">
-                {matchedClinic ? matchedClinic.name : "Welcome to Hospital"}
+                {activeClinicForPanel ? activeClinicForPanel.name : "Welcome to Hospital"}
               </h3>
               <p className="mt-2 text-sm font-medium tracking-wide" style={{ color: "rgba(255,255,255,0.65)" }}>
-                {matchedClinic ? matchedClinic.address : "Securely manage your account and appointments."}
+                {activeClinicForPanel ? activeClinicForPanel.address : "Securely manage your account and appointments."}
               </p>
             </div>
           </div>
@@ -488,6 +506,11 @@ export default function Home() {
                       <input value={suClinicId} onChange={(e) => setSuClinicId(e.target.value.toUpperCase())} name="clinicId" type="text" placeholder="E.g. CLINIC-ABCD" disabled={suLoading}
                         className="mt-2 block w-full rounded-lg border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-slate-800 dark:text-white px-4 py-3 text-base focus:border-blue-500" />
                       <p className="mt-1 text-xs text-zinc-500">Provided by your hospital administrator.</p>
+                      {suClinicId.trim().length > 0 && (
+                        matchedClinic
+                          ? <p className="mt-1 text-xs font-medium text-emerald-600">✓ {matchedClinic.name} — verified and active</p>
+                          : <p className="mt-1 text-xs font-medium text-amber-600">Clinic ID not found or clinic is inactive. Contact your administrator.</p>
+                      )}
                       {suErrors.clinicId && <p className="mt-1 text-sm text-red-600">{suErrors.clinicId}</p>}
                     </label>
                     <button type="submit" disabled={suLoading} className="w-full rounded-lg bg-emerald-600 px-6 py-3 text-lg font-medium text-white hover:bg-emerald-700 disabled:opacity-50 transition-opacity">

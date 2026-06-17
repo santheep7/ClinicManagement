@@ -7,6 +7,7 @@ const JWT_SECRET = process.env.JWT_SECRET || "replace-with-strong-secret";
 
 interface AuthRequest extends Request {
   user?: Record<string, unknown>;
+  clinicId?: string;
 }
 
 function createToken(payload: Record<string, unknown>) {
@@ -132,6 +133,7 @@ export async function login(req: Request, res: Response) {
       sub: user.id,
       employeeId: user.employeeId,
       role: user.role,
+      clinicId: user.clinicId ?? "",
     });
 
     return res.json({
@@ -144,6 +146,7 @@ export async function login(req: Request, res: Response) {
         employeeId: user.employeeId,
         role: user.role,
         department: user.department,
+        clinicId: user.clinicId ?? "",
       },
     });
   } catch (error) {
@@ -163,16 +166,21 @@ export function authMiddleware(req: Request, res: Response, next: NextFunction):
   try {
     const decoded = jwt.verify(token, JWT_SECRET) as Record<string, unknown>;
     (req as AuthRequest).user = decoded;
+    (req as AuthRequest).clinicId = decoded.clinicId as string | undefined;
     next();
   } catch (error) {
     res.status(401).json({ error: "Invalid or expired token" });
   }
 }
 
-export async function getDoctors(_req: Request, res: Response) {
+export async function getDoctors(req: Request, res: Response) {
   try {
+    const clinicId = (req as AuthRequest).clinicId;
     const doctors = await prisma.user.findMany({
-      where: { role: "doctor" },
+      where: {
+        role: "doctor",
+        ...(clinicId ? { clinicId } : {}),
+      },
       select: { id: true, fullName: true, department: true },
     });
 
@@ -183,6 +191,30 @@ export async function getDoctors(_req: Request, res: Response) {
   }
 }
 
-export function getMe(req: AuthRequest, res: Response) {
+export async function getMe(req: AuthRequest, res: Response) {
   return res.json({ user: req.user });
+}
+
+// ── Lookup clinic branding by employee ID (public — no auth needed) ──────────
+export async function getClinicByEmployeeId(req: Request, res: Response) {
+  try {
+    const { employeeId } = req.params;
+    if (!employeeId || employeeId.trim().length === 0) {
+      return res.status(400).json({ error: "Employee ID required." });
+    }
+    const user = await prisma.user.findUnique({
+      where: { employeeId: employeeId.trim().toUpperCase() },
+      select: {
+        clinic: {
+          select: { id: true, clinicId: true, name: true, address: true, logo: true, brandColor: true, isActive: true },
+        },
+      },
+    });
+    if (!user || !user.clinic) {
+      return res.status(404).json({ clinic: null });
+    }
+    return res.json({ clinic: user.clinic });
+  } catch (error: any) {
+    return res.status(500).json({ error: "Lookup failed.", details: error?.message });
+  }
 }

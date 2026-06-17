@@ -4,7 +4,8 @@ import express, { Request, Response, NextFunction } from "express";
 import authRoutes from "./Routes/authRoutes";
 import patientRoutes from "./Routes/patientRoutes";
 import clinicRoutes from "./Routes/clinicRoutes";
-
+import paymentRoutes from "./Routes/paymentRoutes";
+import appointmentRoutes from "./Routes/appointmentRoutes";
 dotenv.config();
 
 const PORT = Number(process.env.PORT || 4000);
@@ -28,6 +29,8 @@ app.get("/api/health", (_req, res) => {
 app.use("/api/auth", authRoutes);
 app.use("/api/patients", patientRoutes);
 app.use("/api/clinics", clinicRoutes);
+app.use("/api/payments", paymentRoutes);
+app.use("/api/appointments", appointmentRoutes);
 
 // Error handling middleware (Fixed explicit type imports)
 app.use((err: any, req: Request, res: Response, next: NextFunction) => {

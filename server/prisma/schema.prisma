@@ -4,7 +4,7 @@ generator client {
 }
 
 datasource db {
-  provider = "postgresql" // Leave this exactly as is. No url line.
+  provider = "postgresql"
 }
 
 model Clinic {
@@ -14,11 +14,8 @@ model Clinic {
   address    String
   phone      String
   isActive   Boolean  @default(true)
-  
-  // 👇 Added these two fields 👇
-  logo       String?  
-  brandColor String?  
-
+  logo       String?
+  brandColor String?
   createdAt  DateTime @default(now())
   updatedAt  DateTime @updatedAt
   users      User[]   @relation("ClinicUsers")
@@ -30,21 +27,25 @@ model User {
   phone        String
   email        String    @unique
   employeeId   String    @unique
-  role         String    
+  role         String
   department   String?
   passwordHash String
   createdAt    DateTime  @default(now())
   updatedAt    DateTime  @updatedAt
-
-  // Added relations
   patients     Patient[] @relation("DoctorPatients")
   clinicId     String?
   clinic       Clinic?   @relation("ClinicUsers", fields: [clinicId], references: [id])
+  payments     Payment[] @relation("DoctorPayments")
 }
 
 model Patient {
-  id               String   @id @default(uuid())
-  queueId          String   @unique
+  id               String    @id @default(uuid())
+  queueId          String    @unique
+  patientId        String    @unique
+  clinicId         String
+  token            String    @default("")
+  tokenSession     String    @default("morning")
+  isVip            Boolean   @default(false)
   name             String
   age              Int
   gender           String
@@ -54,21 +55,59 @@ model Patient {
   reason           String
   priority         String
   checkInTime      String
-  status           String   @default("pending")
-  bloodPressure    String   @default("")
-  heartRate        Int      @default(0)
-  temperature      Float    @default(0.0)
-  symptoms         String   @default("")
-  chiefComplaint   String   @default("")
-  primaryDiagnosis String   @default("")
-  notes            String   @default("")
+  status           String    @default("pending")
+  bloodPressure    String    @default("")
+  heartRate        Int       @default(0)
+  temperature      Float     @default(0.0)
+  symptoms         String    @default("")
+  chiefComplaint   String    @default("")
+  primaryDiagnosis String    @default("")
+  notes            String    @default("")
   followUp         String?
-  tests            String[] @default([])
-  medications      Json     @default("[]")
-  createdAt        DateTime @default(now())
-  updatedAt        DateTime @updatedAt
-
-  // Changed from String to explicit structural Relation
+  visitType        String    @default("new")
+  tests            String[]  @default([])
+  medications      Json      @default("[]")
+  createdAt        DateTime  @default(now())
+  updatedAt        DateTime  @updatedAt
   doctorId         String
-  doctor           User     @relation("DoctorPatients", fields: [doctorId], references: [id])
+  doctor           User      @relation("DoctorPatients", fields: [doctorId], references: [id])
+}
+
+model Appointment {
+  id            String   @id @default(uuid())
+  clinicId      String
+  patientName   String
+  patientPhone  String
+  doctorId      String
+  doctorName    String
+  department    String
+  date          String
+  timeSlot      String
+  reason        String   @default("")
+  status        String   @default("booked")
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+}
+
+model Payment {
+  id          String   @id @default(uuid())
+  patientName String
+  patientId   String   @default("")
+  clinicId    String   @default("")
+  date        String
+  service     String
+  department  String   @default("")
+  totalAmount Float
+  amountPaid  Float
+  amountDue   Float
+  paymentMode String   @default("")
+  status      String   @default("Pending")
+  referenceNo String   @default("")
+  notes       String   @default("")
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  // Optional relation to doctor (nullable — walk-in payments may have no doctor)
+  doctorId    String?
+  doctor      User?    @relation("DoctorPayments", fields: [doctorId], references: [id])
 }

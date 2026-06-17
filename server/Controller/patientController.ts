@@ -1,14 +1,25 @@
 import { Request, Response } from "express";
 import { prisma } from "./prismaClient";
 
+// ─── Types ────────────────────────────────────────────────────────────────────
+
+interface AuthRequest extends Request {
+  user?: Record<string, unknown>;
+  clinicId?: string;
+}
+
 type PatientInput = {
   queueId?: string;
+  patientId?: string;
+  clinicId?: string;
+  isVip?: boolean;
+  requestedToken?: number;
   name: string;
   age: number;
   gender: string;
   phone: string;
   address: string;
-  doctorId: string; 
+  doctorId: string;
   department: string;
   reason: string;
   priority: string;
@@ -22,35 +33,38 @@ type PatientInput = {
   primaryDiagnosis?: string;
   notes?: string;
   followUp?: string;
+  visitType?: string;
   tests?: string[];
   medications?: any;
 };
 
+// ─── Helpers ──────────────────────────────────────────────────────────────────
+
 function mapPatientToQueueItem(patient: any) {
-  // Safe parsing for Prisma's strict Json / JsonValue type matching
   let parsedMedications: any = [];
   if (patient.medications) {
     if (typeof patient.medications === "string") {
-      try {
-        parsedMedications = JSON.parse(patient.medications);
-      } catch {
-        parsedMedications = [];
-      }
+      try { parsedMedications = JSON.parse(patient.medications); } catch { parsedMedications = []; }
     } else {
       parsedMedications = patient.medications;
     }
   }
 
   return {
-    id: patient.id, 
+    id: patient.id,
     queueId: patient.queueId,
+    patientId: patient.patientId,
+    clinicId: patient.clinicId,
+    token: patient.token,
+    tokenSession: patient.tokenSession,
+    isVip: patient.isVip,
     name: patient.name,
     age: patient.age,
     gender: patient.gender,
     phone: patient.phone,
     address: patient.address,
-    doctorId: patient.doctorId, 
-    doctorName: patient.doctor?.fullName ?? undefined, // Derived if relational object is loaded
+    doctorId: patient.doctorId,
+    doctor: patient.doctor?.fullName ?? "",
     department: patient.department,
     reason: patient.reason,
     priority: patient.priority,
@@ -64,7 +78,7 @@ function mapPatientToQueueItem(patient: any) {
     primaryDiagnosis: patient.primaryDiagnosis,
     notes: patient.notes,
     followUp: patient.followUp,
-    // Explicit array type casting to bypass the String[] Prisma compilation block
+    visitType: patient.visitType,
     tests: (patient.tests as string[]) ?? [],
     medications: parsedMedications,
   };
@@ -74,16 +88,111 @@ function generateQueueId() {
   return `Q-${Math.floor(1000 + Math.random() * 9000)}`;
 }
 
+/**
+ * Token system:
+ * - T001–T005  → VIP reserved (blocked for regular patients)
+ * - T006–T015  → Morning session  (10 slots)
+ * - T016–T025  → Afternoon session (10 slots)
+ * - T026+      → Overflow
+ *
+ * Regular patients auto-assign from T006.
+ * VIP patients get one of T001–T005 (passed explicitly).
+ */
+const VIP_RESERVED_START = 1;
+const VIP_RESERVED_END   = 5;
+const MORNING_START      = 6;
+const MORNING_END        = 15;
+const AFTERNOON_START    = 16;
+const AFTERNOON_END      = 25;
+
+function tokenSession(tokenNum: number): string {
+  if (tokenNum <= VIP_RESERVED_END) return "vip";
+  if (tokenNum <= MORNING_END)       return "morning";
+  if (tokenNum <= AFTERNOON_END)     return "afternoon";
+  return "overflow";
+}
+
+function fmtToken(n: number): string {
+  return `T${String(n).padStart(3, "0")}`;
+}
+
+async function generateToken(doctorId: string, clinicId: string, isVip: boolean, requestedToken?: number): Promise<{ token: string; session: string }> {
+  const now = new Date();
+  const startOfDay = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 0, 0, 0);
+  const endOfDay   = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 23, 59, 59, 999);
+
+  // Fetch all tokens already assigned today for this doctor
+  const todayPatients = await prisma.patient.findMany({
+    where: { doctorId, clinicId, createdAt: { gte: startOfDay, lte: endOfDay } },
+    select: { token: true },
+  });
+  const usedTokenNums = new Set(
+    todayPatients.map(p => parseInt(p.token.replace("T", ""), 10)).filter(n => !isNaN(n))
+  );
+
+  if (isVip) {
+    // VIP: assign requested token or first free slot in T001–T005
+    if (requestedToken && requestedToken >= VIP_RESERVED_START && requestedToken <= VIP_RESERVED_END) {
+      if (usedTokenNums.has(requestedToken)) throw new Error(`VIP token ${fmtToken(requestedToken)} is already taken.`);
+      return { token: fmtToken(requestedToken), session: "vip" };
+    }
+    for (let n = VIP_RESERVED_START; n <= VIP_RESERVED_END; n++) {
+      if (!usedTokenNums.has(n)) return { token: fmtToken(n), session: "vip" };
+    }
+    throw new Error("All VIP tokens (T001–T005) are already assigned for today.");
+  }
+
+  // Regular: start from T006, skip VIP range
+  for (let n = MORNING_START; n <= 999; n++) {
+    if (!usedTokenNums.has(n)) {
+      return { token: fmtToken(n), session: tokenSession(n) };
+    }
+  }
+  throw new Error("No tokens available for today.");
+}
+
+/**
+ * Generate patient ID: <2-letter clinic prefix><2-digit sequence><2-digit day><2-digit year>
+ * e.g. clinic "PLYOK", 1st patient on 14 Jun 2026 → PL011426
+ *   PL  = first 2 letters of clinic name
+ *   01  = sequence number for that day (01, 02, 03 ...)
+ *   14  = day of month
+ *   26  = last 2 digits of year
+ */
+async function generatePatientId(clinicName: string): Promise<string> {
+  const prefix = clinicName.trim().toUpperCase().replace(/[^A-Z]/g, "").slice(0, 2).padEnd(2, "X");
+  const now = new Date();
+  const dd = String(now.getDate()).padStart(2, "0");
+  const yy = String(now.getFullYear()).slice(-2);
+  // dateSuffix is the last 4 chars: DDYY
+  const dateSuffix = `${dd}${yy}`;
+
+  // Count patients already registered today for this clinic prefix to get sequence
+  const startOfDay = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 0, 0, 0);
+  const endOfDay   = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 23, 59, 59, 999);
+
+  const todayCount = await prisma.patient.count({
+    where: {
+      patientId: { startsWith: prefix },
+      createdAt: { gte: startOfDay, lte: endOfDay },
+    },
+  });
+
+  const seq = String(todayCount + 1).padStart(2, "0");
+  return `${prefix}${seq}${dateSuffix}`;
+}
+
 function normalizePatientInput(body: any): PatientInput {
   return {
     queueId: body.queueId || body.id,
+    isVip: body.isVip === true || body.isVip === "true",
+    requestedToken: body.requestedToken ? Number(body.requestedToken) : undefined,
     name: String(body.name ?? "").trim(),
     age: body.age !== undefined && body.age !== null ? Number(body.age) : 0,
     gender: String(body.gender ?? "Unknown"),
     phone: String(body.phone ?? "").trim(),
     address: String(body.address ?? "").trim(),
-    // Standardizes doctor selection fallback types if coming from different client routes
-    doctorId: String(body.doctorId ?? body.doctor ?? "").trim(), 
+    doctorId: String(body.doctorId ?? body.doctor ?? "").trim(),
     department: String(body.department ?? "").trim(),
     reason: String(body.reason ?? "").trim(),
     priority: String(body.priority ?? "Medium").trim(),
@@ -97,36 +206,64 @@ function normalizePatientInput(body: any): PatientInput {
     primaryDiagnosis: String(body.primaryDiagnosis ?? ""),
     notes: String(body.notes ?? ""),
     followUp: body.followUp ? String(body.followUp) : undefined,
+    visitType: String(body.visitType ?? "new"),
     tests: Array.isArray(body.tests) ? body.tests.map(String) : [],
     medications: body.medications ?? [],
   };
 }
 
+// ─── Controllers ──────────────────────────────────────────────────────────────
+
 export async function createPatient(req: Request, res: Response) {
   try {
     const input = normalizePatientInput(req.body);
-    
-    if (!input.name || input.age === undefined || input.age === null || !input.phone || !input.address || !input.doctorId || !input.department || !input.reason || !input.priority) {
-      return res.status(400).json({ error: "Missing required patient fields. Please verify doctorId is provided." });
+    const clinicId = (req as AuthRequest).clinicId || String(req.body.clinicId ?? "");
+
+    if (!input.name || input.age === undefined || !input.phone || !input.address || !input.department || !input.reason || !input.priority) {
+      return res.status(400).json({ error: "Missing required patient fields." });
+    }
+    if (!clinicId) {
+      return res.status(400).json({ error: "Clinic context is required." });
     }
 
-    // Prevents database crash by validating that the linked doctor profile actually exists
-    const doctorExists = await prisma.user.findUnique({ where: { id: input.doctorId } });
-    if (!doctorExists) {
-      return res.status(404).json({ error: "The assigned doctor record was not found." });
+    const clinic = await prisma.clinic.findUnique({ where: { id: clinicId }, select: { name: true } });
+    if (!clinic) {
+      return res.status(400).json({ error: "Clinic not found." });
+    }
+
+    // Doctor optional for walk-ins
+    if (input.doctorId) {
+      const doctorExists = await prisma.user.findUnique({ where: { id: input.doctorId } });
+      if (!doctorExists) {
+        return res.status(404).json({ error: "The assigned doctor record was not found." });
+      }
     }
 
     const queueId = input.queueId?.trim() || generateQueueId();
+    const patientId = await generatePatientId(clinic.name);
+
+    // Generate token — VIP gets T001–T005, regular starts from T006
+    const { token, session } = await generateToken(
+      input.doctorId || "",
+      clinicId,
+      input.isVip ?? false,
+      input.requestedToken
+    );
 
     const patient = await prisma.patient.create({
       data: {
         queueId,
+        patientId,
+        clinicId,
+        token,
+        tokenSession: session,
+        isVip: input.isVip ?? false,
         name: input.name,
         age: input.age,
         gender: input.gender,
         phone: input.phone,
         address: input.address,
-        doctorId: input.doctorId, 
+        doctorId: input.doctorId || "",
         department: input.department,
         reason: input.reason,
         priority: input.priority,
@@ -140,12 +277,11 @@ export async function createPatient(req: Request, res: Response) {
         primaryDiagnosis: input.primaryDiagnosis,
         notes: input.notes,
         followUp: input.followUp,
+        visitType: input.visitType ?? "new",
         tests: input.tests,
         medications: input.medications,
       },
-      include: {
-        doctor: true 
-      }
+      include: { doctor: true },
     });
 
     return res.status(201).json({ patient: mapPatientToQueueItem(patient) });
@@ -155,11 +291,18 @@ export async function createPatient(req: Request, res: Response) {
   }
 }
 
-export async function getPatients(_req: Request, res: Response) {
+export async function getPatients(req: Request, res: Response) {
   try {
+    const clinicId = (req as AuthRequest).clinicId;
+    const { doctorId } = req.query;
+
     const patients = await prisma.patient.findMany({
+      where: {
+        ...(clinicId ? { clinicId } : {}),
+        ...(doctorId ? { doctorId: String(doctorId) } : {}),
+      },
       orderBy: { createdAt: "desc" },
-      include: { doctor: true } 
+      include: { doctor: true },
     });
     return res.json({ patients: patients.map(mapPatientToQueueItem) });
   } catch (error: any) {
@@ -168,12 +311,84 @@ export async function getPatients(_req: Request, res: Response) {
   }
 }
 
+// ── GET /api/patients/history/:phone — last 5 completed visits for a patient ──
+export async function getPatientHistory(req: Request, res: Response) {
+  try {
+    const { phone } = req.params;
+    const clinicId  = (req as AuthRequest).clinicId;
+    const { excludeId } = req.query; // current visit queueId to exclude
+
+    if (!phone) return res.status(400).json({ error: "Phone number is required." });
+
+    const records = await prisma.patient.findMany({
+      where: {
+        phone: decodeURIComponent(phone),
+        status: "completed",
+        ...(clinicId  ? { clinicId }                       : {}),
+        ...(excludeId ? { queueId: { not: String(excludeId) } } : {}),
+      },
+      orderBy: { createdAt: "desc" },
+      take: 5,
+      select: {
+        queueId:         true,
+        patientId:       true,
+        createdAt:       true,
+        reason:          true,
+        primaryDiagnosis: true,
+        chiefComplaint:  true,
+        symptoms:        true,
+        notes:           true,
+        followUp:        true,
+        tests:           true,
+        medications:     true,
+        bloodPressure:   true,
+        heartRate:       true,
+        temperature:     true,
+        visitType:       true,
+        doctor: { select: { fullName: true } },
+      },
+    });
+
+    const history = records.map(r => {
+      let meds: any[] = [];
+      if (r.medications) {
+        try { meds = typeof r.medications === "string" ? JSON.parse(r.medications) : (r.medications as any[]); } catch {}
+      }
+      return {
+        queueId:         r.queueId,
+        patientId:       r.patientId,
+        date:            r.createdAt.toISOString(),
+        reason:          r.reason,
+        diagnosis:       r.primaryDiagnosis,
+        chiefComplaint:  r.chiefComplaint,
+        symptoms:        r.symptoms,
+        notes:           r.notes,
+        followUp:        r.followUp,
+        tests:           r.tests as string[],
+        medications:     meds.map((m: any) => `${m.name ?? ""} ${m.dosage ?? ""}`.trim()).filter(Boolean),
+        bloodPressure:   r.bloodPressure,
+        heartRate:       r.heartRate,
+        temperature:     r.temperature,
+        visitType:       r.visitType ?? "new",
+        doctor:          r.doctor?.fullName ?? "",
+      };
+    });
+
+    return res.json({ history });
+  } catch (error: any) {
+    console.error("Get patient history error:", error);
+    return res.status(500).json({ error: "Unable to fetch patient history.", details: error?.message });
+  }
+}
+
 export async function getPatientById(req: Request, res: Response) {
   try {
     const { id } = req.params;
-    const patient = await prisma.patient.findUnique({
-      where: { queueId: id },
-      include: { doctor: true }
+    const clinicId = (req as AuthRequest).clinicId;
+
+    const patient = await prisma.patient.findFirst({
+      where: { queueId: id, ...(clinicId ? { clinicId } : {}) },
+      include: { doctor: true },
     });
 
     if (!patient) {
@@ -190,17 +405,17 @@ export async function getPatientById(req: Request, res: Response) {
 export async function updatePatient(req: Request, res: Response) {
   try {
     const { id } = req.params;
+    const clinicId = (req as AuthRequest).clinicId;
     const input = normalizePatientInput(req.body);
 
-    const patient = await prisma.patient.findUnique({
-      where: { queueId: id },
+    const patient = await prisma.patient.findFirst({
+      where: { queueId: id, ...(clinicId ? { clinicId } : {}) },
     });
 
     if (!patient) {
       return res.status(404).json({ error: "Patient not found." });
     }
 
-    // Validate foreign key changes if updating to a new doctor
     if (input.doctorId && input.doctorId !== patient.doctorId) {
       const doctorExists = await prisma.user.findUnique({ where: { id: input.doctorId } });
       if (!doctorExists) {
@@ -216,7 +431,7 @@ export async function updatePatient(req: Request, res: Response) {
         gender: input.gender || patient.gender,
         phone: input.phone || patient.phone,
         address: input.address || patient.address,
-        doctorId: input.doctorId || patient.doctorId, 
+        doctorId: input.doctorId || patient.doctorId,
         department: input.department || patient.department,
         reason: input.reason || patient.reason,
         priority: input.priority || patient.priority,
@@ -230,12 +445,11 @@ export async function updatePatient(req: Request, res: Response) {
         primaryDiagnosis: input.primaryDiagnosis ?? patient.primaryDiagnosis,
         notes: input.notes ?? patient.notes,
         followUp: input.followUp !== undefined ? input.followUp : patient.followUp,
+        visitType: input.visitType || patient.visitType,
         tests: input.tests && input.tests.length > 0 ? input.tests : (patient.tests as string[]),
         medications: input.medications && input.medications.length > 0 ? input.medications : patient.medications,
       },
-      include: {
-        doctor: true
-      }
+      include: { doctor: true },
     });
 
     return res.json({ patient: mapPatientToQueueItem(updated) });
@@ -248,15 +462,17 @@ export async function updatePatient(req: Request, res: Response) {
 export async function deletePatient(req: Request, res: Response) {
   try {
     const { id } = req.params;
-    const patient = await prisma.patient.findUnique({
-      where: { id: id },
+    const clinicId = (req as AuthRequest).clinicId;
+
+    const patient = await prisma.patient.findFirst({
+      where: { id, ...(clinicId ? { clinicId } : {}) },
     });
 
     if (!patient) {
       return res.status(404).json({ error: "Patient not found." });
     }
 
-    await prisma.patient.delete({ where: { id: id } });
+    await prisma.patient.delete({ where: { id } });
     return res.status(204).send();
   } catch (error: any) {
     console.error("Delete patient error:", error);

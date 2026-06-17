@@ -24,14 +24,12 @@ export async function addClinic(req: Request, res: Response) {
       return res.status(401).json({ error: "Unauthorized: Invalid admin secret" });
     }
 
-    // Validate brandColor if provided (must be valid hex)
     if (brandColor && typeof brandColor === "string") {
       if (!/^#([0-9A-Fa-f]{3}|[0-9A-Fa-f]{6})$/.test(brandColor)) {
         return res.status(400).json({ error: "Invalid brand color. Use a hex color like #0ea5e9." });
       }
     }
 
-    // logo must be a URL or base64 data URI
     if (logo && typeof logo === "string") {
       const isUrl = logo.startsWith("http://") || logo.startsWith("https://");
       const isDataUri = logo.startsWith("data:image/");
@@ -133,6 +131,7 @@ export async function getActiveClinics(req: Request, res: Response) {
         address: true,
         logo: true,
         brandColor: true,
+        isActive: true, // ✅ FIXED: was missing — caused frontend isActive to be undefined
       },
     });
     return res.json({ clinics });
