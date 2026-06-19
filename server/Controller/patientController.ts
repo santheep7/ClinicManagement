@@ -304,7 +304,24 @@ export async function getPatients(req: Request, res: Response) {
       orderBy: { createdAt: "desc" },
       include: { doctor: true },
     });
-    return res.json({ patients: patients.map(mapPatientToQueueItem) });
+
+    const patientsWithCount = await Promise.all(
+      patients.map(async (p) => {
+        const count = await prisma.patient.count({
+          where: {
+            phone: p.phone,
+            status: "completed",
+            ...(clinicId ? { clinicId } : {}),
+          },
+        });
+        return {
+          ...mapPatientToQueueItem(p),
+          visitCount: count || 1,
+        };
+      })
+    );
+
+    return res.json({ patients: patientsWithCount });
   } catch (error: any) {
     console.error("Get patients error:", error);
     return res.status(500).json({ error: "Unable to fetch patients.", details: error?.message });
@@ -395,10 +412,76 @@ export async function getPatientById(req: Request, res: Response) {
       return res.status(404).json({ error: "Patient not found." });
     }
 
-    return res.json({ patient: mapPatientToQueueItem(patient) });
+    const count = await prisma.patient.count({
+      where: {
+        phone: patient.phone,
+        status: "completed",
+        ...(clinicId ? { clinicId } : {}),
+      },
+    });
+
+    return res.json({
+      patient: {
+        ...mapPatientToQueueItem(patient),
+        visitCount: count || 1,
+      },
+    });
   } catch (error: any) {
     console.error("Get patient by id error:", error);
     return res.status(500).json({ error: "Unable to fetch patient.", details: error?.message });
+  }
+}
+export async function searchPatients(req: Request, res: Response) {
+  try {
+    const clinicId = (req as AuthRequest).clinicId;
+    const { name, phone, address } = req.query;
+
+    // If all parameters are completely missing from the request, exit early
+    if (!name && !phone && !address) {
+      return res.json({ patients: [] });
+    }
+
+    // Dynamic array to store active filters and prevent "Blank Field Poisoning"
+    const conditions: any[] = [];
+
+    if (name && String(name).trim() !== "") {
+      conditions.push({
+        name: { contains: String(name).trim(), mode: "insensitive" },
+      });
+    }
+
+    if (phone && String(phone).trim() !== "") {
+      conditions.push({
+        phone: { contains: String(phone).trim(), mode: "insensitive" },
+      });
+    }
+
+    if (address && String(address).trim() !== "") {
+      conditions.push({
+        address: { contains: String(address).trim(), mode: "insensitive" },
+      });
+    }
+
+    // If inputs were just empty white spaces, return empty array
+    if (conditions.length === 0) {
+      return res.json({ patients: [] });
+    }
+
+    // Query Prisma using the clean conditions array
+    const patients = await prisma.patient.findMany({
+      where: {
+        ...(clinicId ? { clinicId } : {}),
+        AND: conditions, // Combines filters safely without blank strings breaking the query
+      },
+      orderBy: { createdAt: "desc" },
+      include: { doctor: true },
+    });
+
+    // Format the results using your existing map helper before sending to frontend
+    return res.json({ patients: patients.map(mapPatientToQueueItem) });
+  } catch (error: any) {
+    console.error("Search patients error:", error);
+    return res.status(500).json({ error: "Unable to search patients.", details: error?.message });
   }
 }
 

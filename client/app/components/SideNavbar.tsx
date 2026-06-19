@@ -11,9 +11,10 @@ import {
 
 interface Props {
   onLogout: () => void;
+  onClinicsClick?: () => void;
 }
 
-export default function AdminSidebar({ onLogout }: Props) {
+export default function AdminSidebar({ onLogout, onClinicsClick }: Props) {
   return (
     <aside className="w-72 bg-slate-900 text-white min-h-screen flex flex-col">
       <div className="p-6 border-b border-slate-800">
@@ -29,7 +30,10 @@ export default function AdminSidebar({ onLogout }: Props) {
           Dashboard
         </button>
 
-        <button className="w-full flex items-center gap-3 px-4 py-3 rounded-xl hover:bg-slate-800">
+        <button 
+          onClick={onClinicsClick}
+          className="w-full flex items-center gap-3 px-4 py-3 rounded-xl hover:bg-slate-800"
+        >
           <Building2 size={18} />
           Clinics
         </button>

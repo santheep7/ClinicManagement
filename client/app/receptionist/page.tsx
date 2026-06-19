@@ -73,6 +73,30 @@ interface PaymentRecord {
   createdAt: string;
 }
 
+// FIX #1 — Moved interfaces outside the component
+interface RevisitSuggestion {
+  followUp: string;
+  diagnosis: string;
+  doctor: string;
+  visitType: string;
+}
+
+interface PatientCard {
+  name: string;
+  age: number;
+  gender: string;
+  phone: string;
+  address: string;
+  doctorId: string;
+  doctor: string;
+  department: string;
+  lastDiagnosis: string;
+  lastReason: string;
+  patientId: string;
+  followUp: string;
+  scheduledVisitType: string;
+}
+
 // ─── Constants ────────────────────────────────────────────────────────────────
 
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:4000";
@@ -102,8 +126,8 @@ const STATUS_STYLES: Record<PaymentRecord["status"], string> = {
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
 function deriveStatus(total: number, paid: number): PaymentRecord["status"] {
+  if (paid >= total) return "Paid";//check if fully paid first
   if (paid <= 0) return "Pending";
-  if (paid >= total) return "Paid";
   return "Partial";
 }
 
@@ -188,6 +212,17 @@ export default function ReceptionistDashboard() {
   const [revisitPatientId, setRevisitPatientId] = useState("");
   const [sourceAppointmentId, setSourceAppointmentId] = useState<string | null>(null);
 
+  // ── Revisit search state ──
+  const [revisitSearch, setRevisitSearch] = useState({ name: "", phone: "", address: "" });
+  const [revisitResults, setRevisitResults] = useState<PatientCard[]>([]);
+  const [revisitSearchLoading, setRevisitSearchLoading] = useState(false);
+  const [selectedRevisitPatient, setSelectedRevisitPatient] = useState<PatientCard | null>(null);
+
+  // ── Revisit suggestion state ──
+  const [revisitSuggestion, setRevisitSuggestion] = useState<RevisitSuggestion | null>(null);
+  const [suggestionDismissed, setSuggestionDismissed] = useState(false);
+  const [patientCard, setPatientCard] = useState<PatientCard | null>(null);
+
   // ── Sidebar state ──
   const [sidebarOpen, setSidebarOpen] = useState(true);
   const [sidebarSection, setSidebarSection] = useState<"queue" | "patients">("queue");
@@ -230,12 +265,16 @@ export default function ReceptionistDashboard() {
       window.location.href = "/";
     }
 
+    // FIX #7 — warn on corrupted localStorage instead of silent catch
     try {
       const storedCompleted = localStorage.getItem("completedPatients");
       if (storedCompleted) {
         setCompletedPatients(JSON.parse(storedCompleted));
       }
-    } catch {}
+    } catch (err) {
+      console.warn("Corrupted completedPatients in localStorage, clearing.", err);
+      localStorage.removeItem("completedPatients");
+    }
   }, []);
 
   // ── Load patient queue ──
@@ -252,7 +291,6 @@ export default function ReceptionistDashboard() {
         if (!response.ok) { handleUnauthorized(response.status); return; }
         const data = await response.json();
         const all: QueueItem[] = data.patients || [];
-        // Split: completed go to sidebar patients, rest stay in queue
         const done    = all.filter((p: QueueItem) => p.status === "completed");
         const active  = all.filter((p: QueueItem) => p.status !== "completed");
         setQueue(active);
@@ -269,10 +307,61 @@ export default function ReceptionistDashboard() {
     };
 
     loadQueue();
-    // Poll every 30 seconds so completed patients auto-move
     const pollInterval = setInterval(loadQueue, 30000);
     return () => clearInterval(pollInterval);
   }, [mounted]);
+  // ── Unified Real-Time Patient Status Lookup ──
+  useEffect(() => {
+  if (visitType === "new" || (!phone.trim() && !name.trim())) {
+    setRevisitResults([]);
+    return;
+  }
+
+  const delayDebounceFn = setTimeout(async () => {
+    setRevisitSearchLoading(true);
+    try {
+      const token = localStorage.getItem("accessToken");
+      const searchParam = phone.trim() 
+        ? `phone=${encodeURIComponent(phone.trim())}` 
+        : `name=${encodeURIComponent(name.trim())}`;
+
+      const response = await fetch(`${API_BASE_URL}/api/patients/search?${searchParam}`, {
+        method: "GET",
+        headers: { Authorization: `Bearer ${token}` },
+      });
+
+      if (response.ok) {
+        const data = await response.json();
+        const patientsRaw = Array.isArray(data) ? data : data.patients || [];
+        
+        // Map the backend structure to match the PatientCard layout expected by your UI
+        const mappedResults: PatientCard[] = patientsRaw.map((p: any) => ({
+          name:               p.name,
+          age:                p.age,
+          gender:             p.gender,
+          phone:              p.phone,
+          address:            p.address,
+          doctorId:           p.doctorId || "",
+          doctor:             p.doctor || "",
+          department:         p.department || "",
+          lastDiagnosis:      p.lastDiagnosis || "",
+          lastReason:         p.reason || "",
+          patientId:          p.patientId || p.id, // Handles cross-compatible IDs
+          followUp:           p.followUp || "",
+          scheduledVisitType: p.scheduledVisitType || visitType,
+        }));
+
+        setRevisitResults(mappedResults);
+      }
+    } catch (error) {
+      console.error("Live lookup pipeline exception:", error);
+    } finally {
+      setRevisitSearchLoading(false);
+    }
+  }, 350);
+
+  return () => clearTimeout(delayDebounceFn);
+}, [phone, name, visitType, selectedRevisitPatient]);
 
   // ── Load doctors ──
   useEffect(() => {
@@ -333,6 +422,92 @@ export default function ReceptionistDashboard() {
     setDepartment(selected?.department || "");
   }
 
+  // ── Look up revisit suggestion by phone number ──
+  async function checkRevisitByPhone(phoneValue: string) {
+  const digits = phoneValue.replace(/\D/g, "");
+  
+  // Wait until a full phone number is typed (usually 10 digits in IN/US) to prevent spamming the API
+  if (digits.length < 10) { 
+    setRevisitSuggestion(null); 
+    setPatientCard(null); 
+    return; 
+  }
+
+  const token = localStorage.getItem("accessToken");
+  if (!token) return;
+
+  try {
+    // 1. Fetch directly from the backend using the phone number
+    const res = await fetch(
+      `${API_BASE_URL}/api/patients/history/${encodeURIComponent(phoneValue)}`,
+      { headers: { Authorization: `Bearer ${token}` } }
+    );
+    
+    if (!res.ok) { 
+      setRevisitSuggestion(null); 
+      setPatientCard(null); 
+      return; 
+    }
+    
+    const data = await res.json();
+    
+    // If no patient found in DB, exit
+    if (!data.patient) {
+      setRevisitSuggestion(null); 
+      setPatientCard(null); 
+      return; 
+    }
+
+    const dbPatient = data.patient;
+
+    // 2. Populate the PatientCard using the database response instead of the local match
+    const card: PatientCard = {
+      name: dbPatient.name,
+      age: dbPatient.age,
+      gender: dbPatient.gender,
+      phone: dbPatient.phone,
+      address: dbPatient.address,
+      doctorId: dbPatient.doctorId || "",
+      doctor: dbPatient.doctor || "",
+      department: dbPatient.department || "",
+      lastDiagnosis: data.history?.[0]?.diagnosis || "",
+      lastReason: dbPatient.reason || "",
+      patientId: dbPatient.id || "",
+      followUp: data.history?.find((h: any) => h.followUp)?.followUp || "",
+      scheduledVisitType: data.history?.find((h: any) => h.followUp)?.visitType || "revisit",
+    };
+    
+    setPatientCard(card);
+
+    // 3. Auto-fill the UI state
+    setName(dbPatient.name);
+    setAge(String(dbPatient.age));
+    setGender(dbPatient.gender);
+    setPhone(dbPatient.phone);
+    setAddress(dbPatient.address);
+    if (dbPatient.doctorId) setDoctorId(dbPatient.doctorId);
+    if (dbPatient.doctor) setDoctor(dbPatient.doctor);
+    if (dbPatient.department) setDepartment(dbPatient.department);
+
+    // 4. Handle follow-up suggestions
+    const withFollowUp = (data.history || []).find((h: any) => h.followUp);
+    if (withFollowUp) {
+      setRevisitSuggestion({
+        followUp: withFollowUp.followUp,
+        diagnosis: withFollowUp.diagnosis || "",
+        doctor: withFollowUp.doctor || "",
+        visitType: withFollowUp.visitType || "revisit",
+      });
+      setSuggestionDismissed(false);
+    } else {
+      setRevisitSuggestion(null);
+    }
+  } catch (error) {
+    console.error("Failed to fetch revisit data:", error);
+    setRevisitSuggestion(null);
+    setPatientCard(null);
+  }
+}
   // ── Pre-fill check-in form from a booked appointment ─────────────────────
   function checkInFromAppointment(appt: Appointment) {
     setName(appt.patientName);
@@ -347,79 +522,97 @@ export default function ReceptionistDashboard() {
     setBp(""); setPulse(""); setTemperature("");
     setPriority("Medium");
     setIsVip(false); setRequestedVipToken("");
-    setActiveTab("dashboard");
+    setActiveTab("register");
     setMessage(`✓ Appointment loaded — please fill in vitals and address for ${appt.patientName}`);
     setTimeout(() => setMessage(""), 5000);
   }
 
-  async function handleAddToQueue(event: React.FormEvent) {
-    event.preventDefault();
-    if (!name || !age || !phone || !address || !reason) {
-      setMessage("Please complete all required fields before queuing the patient.");
+  // ── Search existing patients for revisit/followup ──
+  async function searchRevisitPatients() {
+    const { name: sName, phone: sPhone, address: sAddr } = revisitSearch;
+    if (!sName.trim() && !sPhone.trim() && !sAddr.trim()) {
+      setRevisitResults([]);
       return;
     }
-    const storedUser = localStorage.getItem("user");
-    const parsedUser = storedUser ? JSON.parse(storedUser) : null;
-    
-    // Non-digits are stripped out before calculating to avoid passing NaN values
-    const cleanPulse = pulse.replace(/\D/g, "");
-
-    const payload = {
-      name: name.trim(),
-      age: Number(age),
-      gender,
-      phone: phone.trim(),
-      address: address.trim(),
-      department,
-      reason: reason.trim(),
-      priority,
-      bloodPressure: bp.trim() || undefined,
-      heartRate: cleanPulse ? Number(cleanPulse) : undefined,
-      temperature: temperature.trim() || undefined,
-      checkInTime: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
-      doctorId: doctorId || undefined,
-      clinicId: parsedUser?.clinicId || "",
-      isVip,
-      requestedToken: isVip && requestedVipToken ? Number(requestedVipToken) : undefined,
-      visitType,
-    };
+    setRevisitSearchLoading(true);
+    setSelectedRevisitPatient(null);
     const token = localStorage.getItem("accessToken");
-    if (!token) { alert("Authentication token missing. Please sign back in."); return; }
+    if (!token) { setRevisitSearchLoading(false); return; }
     try {
-      const response = await fetch(`${API_BASE_URL}/api/patients`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
-        body: JSON.stringify(payload),
+      const params = new URLSearchParams();
+      if (sName.trim())  params.append("name",    sName.trim());
+      if (sPhone.trim()) params.append("phone",   sPhone.trim());
+      if (sAddr.trim())  params.append("address", sAddr.trim());
+
+      const res = await fetch(`${API_BASE_URL}/api/patients/search?${params.toString()}`, {
+        headers: { Authorization: `Bearer ${token}` },
       });
-      if (response.ok) {
-        const data = await response.json();
-        setQueue((current) => [data.patient, ...current]);
-        setMessage(`Patient checked in. Token: ${data.patient.token || "—"}`);
-        setName(""); setAge(""); setGender("Male"); setPhone(""); setAddress("");
-        setReason(""); setPriority("Low"); setBp(""); setPulse(""); setTemperature("");
-        setDoctorId(""); setDoctor(""); setDepartment("");
-        setIsVip(false); setRequestedVipToken("");
-        setVisitType("new"); setRevisitPatientId("");
-        if (sourceAppointmentId) {
-          const token2 = localStorage.getItem("accessToken");
-          await fetch(`${API_BASE_URL}/api/appointments/${sourceAppointmentId}/status`, {
-            method: "PATCH",
-            headers: { "Content-Type": "application/json", Authorization: `Bearer ${token2}` },
-            body: JSON.stringify({ status: "confirmed" }),
-          });
-          setAppointments(prev => prev.map(a => a.id === sourceAppointmentId ? { ...a, status: "confirmed" as const } : a));
-          setSourceAppointmentId(null);
-        }
-      } else {
-        const errData = await response.json().catch(() => ({}));
-        alert(`Failed to save record: ${errData.message || response.statusText}`);
-      }
-    } catch (error) {
-      console.error("Network communication error:", error);
-      alert("Network Error: Could not save patient dataset.");
+      if (!res.ok) { setRevisitResults([]); return; }
+      const data = await res.json();
+
+      const results: PatientCard[] = (data.patients || []).map((p: QueueItem & { lastDiagnosis?: string; lastReason?: string; scheduledVisitType?: string }) => ({
+        name:               p.name,
+        age:                p.age,
+        gender:             p.gender,
+        phone:              p.phone,
+        address:            p.address,
+        doctorId:           p.doctorId || "",
+        doctor:             p.doctor || "",
+        department:         p.department || "",
+        lastDiagnosis:      p.lastDiagnosis || "",
+        lastReason:         p.reason || "",
+        patientId:          p.patientId || p.id,
+        followUp:           p.followUp || "",
+        scheduledVisitType: p.scheduledVisitType || visitType,
+      }));
+      setRevisitResults(results);
+    } catch {
+      setRevisitResults([]);
+    } finally {
+      setRevisitSearchLoading(false);
     }
-    setTimeout(() => setMessage(""), 3000);
   }
+
+  function selectRevisitPatient(p: PatientCard) {
+  setSelectedRevisitPatient(p);
+  setName(p.name);
+  setAge(String(p.age));
+  setGender(p.gender);
+  setPhone(p.phone);
+  setAddress(p.address);
+  setRevisitPatientId(p.patientId);
+  setPatientCard(p);
+  setReason(p.lastReason || "Follow-up visit");
+
+  // Keep the previous doctor and department assigned to them
+  setDoctorId(p.doctorId);
+  setDoctor(p.doctor);
+  setDepartment(p.department);
+
+  // ── AUTOMATIC STATUS FILTER LOGIC ──
+  if (p.followUp) {
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    const followUpDate = new Date(p.followUp);
+    followUpDate.setHours(0, 0, 0, 0);
+
+    if (today > followUpDate) {
+      // Patient missed their due date, automatically tag as a "revisit"
+      setVisitType("revisit");
+      setMessage(`⚠️ Revisit: Patient was scheduled for ${p.followUp} (Overdue)`);
+    } else {
+      // Patient came on time or early
+      setVisitType("followup");
+      setMessage(`📅 Scheduled Follow-up active for ${p.followUp}`);
+    }
+  } else {
+    // No explicit follow up date found, default back to regular revisit
+    setVisitType("revisit");
+  }
+
+  // Clear notification message after 5 seconds
+  setTimeout(() => setMessage(""), 5000);
+}
 
   async function removeQueueItem(id: string) {
     const token = localStorage.getItem("accessToken");
@@ -548,7 +741,7 @@ export default function ReceptionistDashboard() {
     }
   }, [completedPatients, mounted]);
 
-  // Controlled queue verification hook block 
+  // Controlled queue verification hook block
   useEffect(() => {
     const done = queue.filter(q => q.status === "completed");
     if (done.length > 0) {
@@ -581,6 +774,8 @@ export default function ReceptionistDashboard() {
     const matchMode = !filterMode || p.paymentMode === filterMode;
     return matchSearch && matchStatus && matchMode;
   });
+
+  // FIX #6 — kept for display use; remove if not rendering them
   const filteredCollected = filtered.reduce((s, p) => s + p.amountPaid, 0);
   const filteredDue = filtered.reduce((s, p) => s + p.amountDue, 0);
 
@@ -618,8 +813,8 @@ export default function ReceptionistDashboard() {
 
         <nav className="flex-1 px-2 py-4 space-y-1 overflow-y-auto">
           {[
-            { id: "queue",    label: "Queue",             icon: "M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2", count: queue.length,             color: "sky"     },
-            { id: "patients", label: "Patients",          icon: "M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0z", count: completedPatients.length, color: "emerald" },
+            { id: "queue",    label: "Queue",    icon: "M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2", count: queue.length,             color: "sky"     },
+            { id: "patients", label: "Patients", icon: "M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0z", count: completedPatients.length, color: "emerald" },
           ].map(({ id, label, icon, count, color }) => (
             <button key={id} onClick={() => { setSidebarSection(id as "queue" | "patients"); if (!sidebarOpen) setSidebarOpen(true); }}
               className={`w-full flex items-center gap-3 px-3 py-3 rounded-2xl text-sm font-semibold transition-all ${
@@ -657,6 +852,7 @@ export default function ReceptionistDashboard() {
                   <div key={item.id} className={`p-3 rounded-2xl border text-xs ${
                     item.isVip ? "border-amber-200 bg-amber-50/40" :
                     item.priority === "Critical" || item.priority === "High" ? "border-rose-200 bg-rose-50/30" :
+                    (item.visitType === "followup" || item.visitType === "revisit") ? "border-orange-200 bg-orange-50/30" :
                     "border-zinc-100 bg-slate-50"
                   }`}>
                     <div className="flex items-start justify-between gap-1">
@@ -669,6 +865,11 @@ export default function ReceptionistDashboard() {
                         )}
                         <p className="font-bold text-zinc-800 mt-1 truncate">{item.name}</p>
                         <p className="text-zinc-400">{item.age} y/o · {item.checkInTime}</p>
+                        {(item.visitType === "revisit" || item.visitType === "followup") && (
+                          <span className={`inline-block mt-1 text-[9px] font-extrabold uppercase px-1.5 py-0.5 rounded-full ${
+                            item.visitType === "followup" ? "bg-purple-100 text-purple-700" : "bg-orange-100 text-orange-700"
+                          }`}>{item.visitType === "followup" ? "📋 Follow-up" : "🔁 Revisit"}</span>
+                        )}
                       </div>
                     </div>
                   </div>
@@ -709,6 +910,16 @@ export default function ReceptionistDashboard() {
                               <p className="font-bold text-zinc-800 truncate max-w-[80px]">{item.name}</p>
                               <p className="text-zinc-400">{item.age}y · {item.gender}</p>
                               {item.patientId && <p className="text-zinc-300 font-mono">{item.patientId}</p>}
+                              {(item.visitType === "revisit" || item.visitType === "followup") && (
+                                <span className={`inline-block mt-0.5 text-[9px] font-extrabold uppercase px-1.5 py-0.5 rounded-full ${
+                                  item.visitType === "followup" ? "bg-purple-100 text-purple-700" : "bg-orange-100 text-orange-700"
+                                }`}>{item.visitType === "followup" ? "Follow-up" : "Revisit"}</span>
+                              )}
+                              {item.followUp && (
+                                <p className="text-[9px] text-orange-500 font-semibold mt-0.5">
+                                  Due: {new Date(item.followUp).toLocaleDateString("en-IN", { day: "numeric", month: "short" })}
+                                </p>
+                              )}
                             </td>
                             <td className="px-2 py-2">
                               <p className="text-zinc-600 truncate max-w-[70px]">{item.doctor || "—"}</p>
@@ -726,7 +937,6 @@ export default function ReceptionistDashboard() {
         )}
 
         <div className="p-3 border-t border-zinc-100">
-          {/* Register Patient shortcut */}
           <button onClick={() => setActiveTab("register")}
             className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-2xl text-sm font-semibold mb-2 transition-all ${
               activeTab === "register" ? "bg-sky-50 text-sky-700" : "text-zinc-600 hover:bg-slate-100"
@@ -749,7 +959,7 @@ export default function ReceptionistDashboard() {
 
       {/* ── Main content structural wrapper ── */}
       <div className="flex-1 flex flex-col min-w-0">
-        
+
         {/* Navbar */}
         <div className="flex items-center justify-between gap-4 border-b border-zinc-200 bg-white px-8 py-4 shadow-sm">
           <div className="flex items-center gap-6 min-w-0">
@@ -757,10 +967,9 @@ export default function ReceptionistDashboard() {
               <h1 className="text-xl font-extrabold leading-tight">Receptionist Dashboard</h1>
               <p className="text-[11px] text-zinc-400 mt-0.5">Signed in as <span className="font-bold text-zinc-700">{user.fullName}</span></p>
             </div>
-            {/* Stats pills */}
             <div className="hidden sm:flex items-center gap-2 flex-wrap">
               {[
-                { label: "In Queue",     value: queue.length,                                              bg: "bg-sky-50 border-sky-100 text-sky-700"       },
+                { label: "In Queue",     value: queue.length,                                              bg: "bg-sky-50 border-sky-100 text-sky-700"        },
                 { label: "Waiting",      value: queue.filter(q => q.status === "pending").length,           bg: "bg-amber-50 border-amber-100 text-amber-700"  },
                 { label: "In Progress",  value: queue.filter(q => q.status === "treating").length,          bg: "bg-indigo-50 border-indigo-100 text-indigo-700"},
                 { label: "Completed",    value: completedPatients.length,                                   bg: "bg-emerald-50 border-emerald-100 text-emerald-700"},
@@ -816,7 +1025,7 @@ export default function ReceptionistDashboard() {
           </div>
         </div>
 
-        {/* Dynamic Tab Body Render Sections */}
+        {/* ─────────────── TAB BODIES ─────────────── */}
         <div className="p-8 overflow-y-auto flex-1">
           {/* ── Dashboard Tab: Queue Only ── */}
           {activeTab === "dashboard" && (
@@ -937,6 +1146,20 @@ export default function ReceptionistDashboard() {
                                   <p className="font-bold text-zinc-800">{item.name}</p>
                                   <p className="text-xs text-zinc-400">{item.age} y/o · {item.gender}</p>
                                   {item.patientId && <p className="text-[10px] text-zinc-300 font-mono">{item.patientId}</p>}
+                                  {(item.visitType === "revisit" || item.visitType === "followup") && (
+                                    <span className={`inline-block mt-1 text-[10px] font-extrabold uppercase px-2 py-0.5 rounded-full ${
+                                      item.visitType === "followup"
+                                        ? "bg-purple-100 text-purple-700"
+                                        : "bg-orange-100 text-orange-700"
+                                    }`}>
+                                      {item.visitType === "followup" ? "📋 Follow-up" : "🔁 Revisit"}
+                                    </span>
+                                  )}
+                                  {item.followUp && (
+                                    <p className="text-[10px] text-orange-500 font-semibold mt-0.5">
+                                      Due: {new Date(item.followUp).toLocaleDateString("en-IN", { day: "numeric", month: "short", year: "numeric" })}
+                                    </p>
+                                  )}
                                 </div>
                               </td>
                               <td className="px-4 py-3">
@@ -990,256 +1213,354 @@ export default function ReceptionistDashboard() {
           )}
 
           {/* ── Register Patient Tab ── */}
-          {activeTab === "register" && (
-            <div className="relative min-h-full -m-8 overflow-hidden">
-              {/* Normal page background */}
-{/* Gradient page background */}
-<div className="absolute inset-0 bg-gradient-to-br from-slate-100 via-sky-50 to-indigo-100 dark:from-zinc-800 dark:via-zinc-900 dark:to-slate-900" />
+          {/* ── Register Patient Tab ── */}
+        {activeTab === "register" && (
+          <div className="max-w-4xl mx-auto p-6">
+            <div className="bg-white p-6 rounded-3xl border border-zinc-200 shadow-sm">
+              <form 
+                onSubmit={async (e) => {
+                  e.preventDefault();
+                  if (!name.trim() || !phone.trim() || !age || !address.trim() || !reason.trim()) {
+                    setMessage("⚠️ Please complete all required configuration targets.");
+                    return;
+                  }
+                  const token = localStorage.getItem("accessToken");
+                  if (!token) return;
 
-{/* Optional: Add a subtle blurred shape behind the card to make the glass "pop" */}
-<div className="absolute top-1/4 left-1/4 w-96 h-96 bg-sky-300/30 rounded-full mix-blend-multiply filter blur-3xl opacity-70 animate-blob" />              {/* Subtle noise texture overlay */}
-              <div className="absolute inset-0 opacity-40"
-                style={{ backgroundImage: "url(\"data:image/svg+xml,%3Csvg width='60' height='60' viewBox='0 0 60 60' xmlns='http://www.w3.org/2000/svg'%3E%3Cg fill='none' fill-rule='evenodd'%3E%3Cg fill='%23cbd5e1' fill-opacity='0.3'%3E%3Cpath d='M36 34v-4h-2v4h-4v2h4v4h2v-4h4v-2h-4zm0-30V0h-2v4h-4v2h4v4h2V6h4V4h-4zM6 34v-4H4v4H0v2h4v4h2v-4h4v-2H6zM6 4V0H4v4H0v2h4v4h2V6h4V4H6z'/%3E%3C/g%3E%3C/g%3E%3C/svg%3E\")" }} />
+                  const payload = {
+                    name: name.trim(),
+                    age: parseInt(age) || 0,
+                    gender,
+                    phone: phone.trim(),
+                    address: address.trim(),
+                    doctor,
+                    doctorId,
+                    department,
+                    reason: reason.trim(),
+                    priority,
+                    isVip,
+                    requestedVipToken: requestedVipToken || undefined,
+                    visitType,
+                    patientId: visitType !== "new" ? revisitPatientId : undefined,
+                    appointmentId: sourceAppointmentId || undefined,
+                    bloodPressure: bp || undefined,
+                    heartRate: pulse || undefined,
+                    temperature: temperature || undefined
+                  };
 
-              {/* Form card */}
-              <div className="relative z-10 p-8">
-                <div className="backdrop-blur-2xl bg-slate-800/15 border border-white/50 rounded-3xl p-7 shadow-[0_8px_30px_rgb(0,0,0,0.12)] ring-1 ring-slate-900/5">
-
-                  {/* Header */}
-                  <div className="flex items-center justify-between mb-6">
-                    <div>
-                      <h2 className="text-2xl font-extrabold text-zinc-800">Register Patient</h2>
-                      <p className="text-sm text-zinc-500 mt-0.5">Fill in patient details to add to the live queue</p>
+                  try {
+                    const response = await fetch(`${API_BASE_URL}/api/patients`, {
+                      method: "POST",
+                      headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+                      body: JSON.stringify(payload),
+                    });
+                    if (response.ok) {
+                      const data = await response.json();
+                      setQueue((current) => [...current, data.patient]);
+                      
+                      // Reset layout states
+                      setName(""); setAge(""); setGender("Male"); setPhone(""); setAddress("");
+                      setDoctorId(""); setDoctor(""); setDepartment(""); setReason(""); setPriority("Low");
+                      setBp(""); setPulse(""); setTemperature(""); setIsVip(false); setRequestedVipToken("");
+                      setVisitType("new"); setRevisitPatientId(""); setSourceAppointmentId(null); setSelectedRevisitPatient(null);
+                      setMessage("✅ Patient successfully checked into live monitoring stream.");
+                      setTimeout(() => setMessage(""), 5000);
+                    } else {
+                      const errorData = await response.json().catch(() => ({}));
+                      setMessage(`❌ Check-in rejection: ${errorData.message || response.statusText}`);
+                    }
+                  } catch (error) {
+                    console.error("Form submittal exception:", error);
+                    setMessage("❌ Network configuration pipeline failure.");
+                  }
+                }} 
+                className="space-y-4"
+              >
+                
+                {/* Visit Type Selector Header */}
+                <div className="flex flex-wrap gap-4 items-center bg-slate-50 p-4 rounded-2xl border border-zinc-100">
+                  <div>
+                    <label className="block text-xs font-bold text-zinc-400 uppercase tracking-wider mb-1">
+                      Visit Configuration Status
+                    </label>
+                    <select
+  value={visitType}
+  onChange={(e) => {
+    const nextType = e.target.value as "new" | "revisit";
+    setVisitType(nextType);
+    
+    // FIX: Verify a valid phone layout length exists. Prevents routing 
+    // alphabetical names down phone-specific API query chains.
+    if (nextType !== "new" && phone.trim().length >= 10) {
+      checkRevisitByPhone(phone.trim());
+    }
+  }}
+  className="w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500"
+>
+  <option value="new">New Registration</option>
+  <option value="revisit">Revisit / Follow-up</option>
+</select>
+                  </div>
+                  {message && (
+                    <div className="ml-auto px-3 py-1.5 bg-emerald-50 text-emerald-700 font-bold text-xs rounded-xl border border-emerald-100">
+                      {message}
                     </div>
-                    {message && (
-                      <div className="px-4 py-2 rounded-2xl bg-emerald-50 border border-emerald-200 text-sm font-semibold text-emerald-700">
-                        {message}
+                  )}
+                </div>
+
+                {/* Core Patient Fields Grid */}
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                  
+                  {/* Phone Input */}
+                  {/* Phone Input */}
+<div>
+  <label className="block text-[10px] font-extrabold uppercase tracking-wider text-zinc-500 mb-1">Phone *</label>
+  <input
+    type="text" required
+    value={phone}
+    onChange={(e) => setPhone(e.target.value)}
+    className="w-full rounded-xl border border-zinc-200 text-zinc-800 px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-sky-500"
+    placeholder="10-digit number"
+  />
+</div>
+
+{/* Name Input */}
+<div className="md:col-span-2">
+  <label className="block text-[10px] font-extrabold uppercase tracking-wider text-zinc-500 mb-1">Patient Full Name *</label>
+  <input
+    type="text" required
+    value={name}
+    onChange={(e) => setName(e.target.value)}
+    className="w-full rounded-xl border border-zinc-200 text-zinc-800 px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-sky-500"
+    placeholder="Enter first & last name"
+  />
+</div>
+
+                  {/* Age Input */}
+                  <div>
+                    <label className="block text-[10px] font-extrabold uppercase tracking-wider text-zinc-500 mb-1">Age *</label>
+                    <input
+                      type="number" required
+                      value={age}
+                      onChange={(e) => setAge(e.target.value)}
+                      className="w-full rounded-xl border border-zinc-200 text-zinc-800 px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-sky-500"
+                      placeholder="Age"
+                    />
+                  </div>
+
+                  {/* Gender Selector */}
+                  <div>
+                    <label className="block text-[10px] font-extrabold uppercase tracking-wider text-zinc-500 mb-1">Gender *</label>
+                    <select
+                      value={gender}
+                      onChange={(e) => setGender(e.target.value)}
+                      className="w-full rounded-xl border border-zinc-200 text-zinc-800 px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-sky-500 bg-white"
+                    >
+                      <option value="Male">Male</option>
+                      <option value="Female">Female</option>
+                      <option value="Other">Other</option>
+                    </select>
+                  </div>
+
+                  {/* Address Input */}
+                  <div>
+                    <label className="block text-[10px] font-extrabold uppercase tracking-wider text-zinc-500 mb-1">Address *</label>
+                    <input
+                      type="text" required
+                      value={address}
+                      onChange={(e) => setAddress(e.target.value)}
+                      className="w-full rounded-xl border border-zinc-200 text-zinc-800 px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-sky-500"
+                      placeholder="City/Street location"
+                    />
+                  </div>
+                </div>
+
+                {/* ── INLINE SMART SUGGESTIONS & STATUS DETECTOR ── */}
+                {visitType !== "new" && (phone.trim() || name.trim()) && (
+                  <div className="bg-zinc-50 p-4 rounded-2xl border border-dashed border-zinc-300 space-y-2 animate-fadeIn">
+                    <div className="flex justify-between items-center">
+                      <h4 className="text-[10px] font-extrabold text-zinc-500 uppercase tracking-wider">
+                        Real-Time Patient Status Lookup
+                      </h4>
+                      {revisitSearchLoading && (
+                        <span className="text-[10px] text-sky-600 animate-pulse font-medium">Scanning record vault...</span>
+                      )}
+                    </div>
+
+                    {/* Case 1: Match Found */}
+                    {revisitResults.length > 0 && (
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                        {revisitResults.map((p) => {
+                          const isSelected = selectedRevisitPatient?.patientId === p.patientId;
+                          return (
+                            <div
+                              key={p.patientId}
+                              onClick={() => {
+                                selectRevisitPatient(p);
+                                // Automatically sync main form inputs on click
+                                setName(p.name);
+                                setPhone(p.phone);
+                                setAge(p.age?.toString() || "");
+                                setGender(p.gender || "Male");
+                                setAddress(p.address || "");
+                              }}
+                              className={`p-3 rounded-xl border text-xs cursor-pointer transition-all ${
+                                isSelected
+                                  ? "border-sky-500 bg-sky-50 text-sky-900 shadow-sm"
+                                  : "border-zinc-200 bg-white hover:bg-zinc-100 text-zinc-700"
+                              }`}
+                            >
+                              <div className="flex justify-between items-start font-bold">
+                                <span>{p.name} ({p.age}y/{p.gender})</span>
+                                {p.followUp ? (
+                                  <span className="text-[9px] font-black bg-emerald-100 text-emerald-800 px-2 py-0.5 rounded-md uppercase tracking-wide">
+                                    🗓️ Revisit Scheduled: {p.followUp}
+                                  </span>
+                                ) : (
+                                  <span className="text-[9px] font-black bg-zinc-200 text-zinc-600 px-2 py-0.5 rounded-md uppercase tracking-wide">
+                                    No Revisit Scheduled
+                                  </span>
+                                )}
+                              </div>
+                              <p className="text-[11px] text-zinc-500 mt-1">📞 {p.phone} | 📍 {p.address || "No Address"}</p>
+                              {isSelected && (
+                                <p className="text-[10px] font-semibold text-sky-600 mt-1.5 flex items-center gap-1">
+                                  ✓ Patient linked to registration queue payload
+                                </p>
+                              )}
+                            </div>
+                          );
+                        })}
+                      </div>
+                    )}
+
+                    {/* Case 2: No Match Found in Database */}
+                    {!revisitSearchLoading && revisitResults.length === 0 && (
+                      <div className="p-3 bg-red-50 border border-red-100 text-red-700 rounded-xl text-xs font-medium flex items-center gap-2">
+                        <span>⚠️ No patient registered with these parameters in historical vaults.</span>
                       </div>
                     )}
                   </div>
+                )}
 
-                  {/* Appointment banner */}
-                  {sourceAppointmentId && (
-                    <div className="mb-5 rounded-2xl bg-sky-50 border border-sky-200 px-4 py-3 flex items-center justify-between gap-3">
-                      <div className="flex items-center gap-2">
-                        <span className="text-sky-700 text-lg">📋</span>
-                        <div>
-                          <p className="text-xs font-extrabold text-sky-700">Pre-filled from Appointment</p>
-                          <p className="text-xs text-sky-500 mt-0.5">Fill in age, address and vitals then submit</p>
-                        </div>
-                      </div>
-                      <button type="button" onClick={() => { setSourceAppointmentId(null); setName(""); setPhone(""); setDoctorId(""); setDoctor(""); setDepartment(""); setReason(""); }}
-                        className="text-xs text-zinc-400 hover:text-zinc-800 shrink-0">✕</button>
+                {/* Assignment & Management Row */}
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-4 pt-2">
+                  {/* Doctor Assignment Dropdown */}
+                  <div>
+                    <label className="block text-[10px] font-extrabold uppercase tracking-wider text-zinc-500 mb-1">Assign Doctor</label>
+                    <select
+                      value={doctorId}
+                      onChange={(e) => handleDoctorChange(e.target.value)}
+                      className="w-full rounded-xl border border-zinc-200 text-zinc-800 px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-sky-500 bg-white"
+                    >
+                      <option value="">Unassigned — triage first</option>
+                      {doctors.map((d) => (
+                        <option key={d.id} value={d.id}>Dr. {d.name} ({d.department})</option>
+                      ))}
+                    </select>
+                  </div>
+
+                  {/* Reason Input */}
+                  <div>
+                    <label className="block text-[10px] font-extrabold uppercase tracking-wider text-zinc-500 mb-1">Reason for Visit *</label>
+                    <input
+                      type="text" required
+                      value={reason}
+                      onChange={(e) => setReason(e.target.value)}
+                      className="w-full rounded-xl border border-zinc-200 text-zinc-800 px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-sky-500"
+                      placeholder="Symptoms or consultation type"
+                    />
+                  </div>
+
+                  {/* Priority Selector */}
+                  <div>
+                    <label className="block text-[10px] font-extrabold uppercase tracking-wider text-zinc-500 mb-1">Queue Priority *</label>
+                    <select
+                      value={priority}
+                      onChange={(e) => setPriority(e.target.value)}
+                      className="w-full rounded-xl border border-zinc-200 text-zinc-800 px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-sky-500 bg-white"
+                    >
+                      <option value="Low">Low Priority</option>
+                      <option value="Medium">Medium Priority</option>
+                      <option value="High">High Priority</option>
+                      <option value="Critical">Critical Emergency</option>
+                    </select>
+                  </div>
+                </div>
+
+                {/* Vitals Assessment Sub-panel */}
+                <div className="bg-zinc-50 p-4 rounded-2xl border border-zinc-100 space-y-2 mt-2">
+                  <h4 className="text-[10px] font-extrabold text-zinc-400 uppercase tracking-wider">Patient Vital Signs Triage (Optional)</h4>
+                  <div className="grid grid-cols-3 gap-3">
+                    <div>
+                      <label className="block text-[10px] text-zinc-500 mb-0.5">Blood Pressure</label>
+                      <input
+                        type="text" value={bp} onChange={(e) => setBp(e.target.value)}
+                        placeholder="120/80 mmHg" className="w-full text-xs p-2 rounded-xl border border-zinc-200 outline-none"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-[10px] text-zinc-500 mb-0.5">Pulse / Heart Rate</label>
+                      <input
+                        type="text" value={pulse} onChange={(e) => setPulse(e.target.value)}
+                        placeholder="72 bpm" className="w-full text-xs p-2 rounded-xl border border-zinc-200 outline-none"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-[10px] text-zinc-500 mb-0.5">Body Temp</label>
+                      <input
+                        type="text" value={temperature} onChange={(e) => setTemperature(e.target.value)}
+                        placeholder="98.6 °F" className="w-full text-xs p-2 rounded-xl border border-zinc-200 outline-none"
+                      />
+                    </div>
+                  </div>
+                </div>
+
+                {/* Footer Actions: VIP and Check-In Submit */}
+                <div className="flex items-center justify-between border-t border-zinc-100 pt-4 mt-2">
+                  <div className="flex items-center gap-2 cursor-pointer select-none" onClick={() => { setIsVip(!isVip); setRequestedVipToken(""); }}>
+                    <button type="button" className={`relative inline-flex h-5 w-9 items-center rounded-full transition-colors ${isVip ? "bg-amber-500" : "bg-zinc-200"}`}>
+                      <span className={`inline-block h-3.5 w-3.5 transform rounded-full bg-white shadow transition-transform ${isVip ? "translate-x-4" : "translate-x-0.5"}`} />
+                    </button>
+                    <span className={`text-xs font-bold ${isVip ? "text-amber-600" : "text-zinc-500"}`}>VIP Priority Token Block</span>
+                  </div>
+
+                  {isVip && (
+                    <div className="flex gap-1 items-center">
+                      <span className="text-[10px] font-bold text-zinc-400 mr-1">Slot:</span>
+                      {[1, 2, 3, 4, 5].map(n => (
+                        <button key={n} type="button" onClick={() => setRequestedVipToken(requestedVipToken === n ? "" : n)}
+                          className={`w-10 h-8 rounded-lg text-xs font-extrabold border transition-all ${requestedVipToken === n ? "bg-amber-500 border-amber-500 text-zinc-950" : "bg-white border-zinc-200 text-zinc-500 hover:bg-amber-50"}`}
+                        >
+                          T00{n}
+                        </button>
+                      ))}
                     </div>
                   )}
 
-                  <form onSubmit={handleAddToQueue} className="space-y-4">
-
-                    {/* Row 1: Name · Age · Gender · Phone */}
-                    <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-8 gap-3 items-end">
-                      <div className="lg:col-span-2">
-                        <label className="block text-[10px] font-extrabold uppercase tracking-wider text-zinc-500 mb-1.5">Full Name</label>
-                        <input type="text" value={name} onChange={(e) => setName(e.target.value)}
-                          className="w-full rounded-xl bg-white/90 border border-zinc-200 text-zinc-800 placeholder-zinc-400 px-3 py-2.5 text-sm focus:outline-none focus:border-sky-400 focus:bg-white/80 transition-all"
-                          placeholder="John Doe" />
-                      </div>
-                      <div>
-                        <label className="block text-[10px] font-extrabold uppercase tracking-wider text-zinc-500 mb-1.5">Age</label>
-                        <input type="number" value={age} onChange={(e) => setAge(e.target.value)}
-                          className="w-full rounded-xl bg-white/60 border border-zinc-200 text-zinc-800 placeholder-zinc-400 px-3 py-2.5 text-sm focus:outline-none focus:border-sky-400 transition-all"
-                          placeholder="45" />
-                      </div>
-                      <div>
-                        <label className="block text-[10px] font-extrabold uppercase tracking-wider text-zinc-500 mb-1.5">Gender</label>
-                        <select value={gender} onChange={(e) => setGender(e.target.value)}
-                          className="w-full rounded-xl bg-white/60 border border-zinc-200 text-zinc-800 px-3 py-2.5 text-sm focus:outline-none focus:border-sky-400 transition-all">
-                          <option>Male</option>
-                          <option>Female</option>
-                          <option>Other</option>
-                        </select>
-                      </div>
-                      <div className="lg:col-span-2">
-                        <label className="block text-[10px] font-extrabold uppercase tracking-wider text-zinc-500 mb-1.5">Phone</label>
-                        <div className="relative">
-                          <input type="text" value={phone} onChange={(e) => {
-                            setPhone(formatPhone("+1", e.target.value));
-                            setPhoneDropdownOpen(true);
-                          }}
-                            onFocus={() => setPhoneDropdownOpen(true)}
-                            onBlur={() => setTimeout(() => setPhoneDropdownOpen(false), 150)}
-                            className="w-full rounded-xl bg-white/60 border border-zinc-200 text-zinc-800 placeholder-zinc-400 px-3 py-2.5 text-sm focus:outline-none focus:border-sky-400 transition-all"
-                            placeholder="555-012-3456" autoComplete="off" />
-                          {phoneDropdownOpen && phone.replace(/\D/g, "").length >= 3 && (() => {
-                            const digits = phone.replace(/\D/g, "");
-                            const matches = queue.filter(q => q.phone.replace(/\D/g, "").includes(digits));
-                            if (matches.length === 0) return null;
-                            return (
-                              <div className="absolute top-full left-0 right-0 z-30 mt-1 bg-white border border-zinc-200 rounded-2xl shadow-xl overflow-hidden">
-                                <div className="px-4 py-2 bg-amber-50 border-b border-amber-100">
-                                  <p className="text-[10px] font-extrabold uppercase tracking-wider text-amber-600">Returning patient{matches.length > 1 ? "s" : ""} — click to autofill</p>
-                                </div>
-                                {matches.slice(0, 4).map((q) => (
-                                  <button key={q.id} type="button"
-                                    onMouseDown={() => { setPhone(q.phone); setName(q.name); setAge(String(q.age)); setGender(q.gender); setAddress(q.address); setPhoneDropdownOpen(false); }}
-                                    className="w-full text-left px-4 py-2.5 hover:bg-slate-50 border-b border-zinc-100 last:border-0 transition-colors">
-                                    <p className="text-sm font-bold text-zinc-800">{q.name}</p>
-                                    <p className="text-xs text-zinc-400">{q.phone} · {q.age} y/o · {q.gender}</p>
-                                  </button>
-                                ))}
-                              </div>
-                            );
-                          })()}
-                        </div>
-                      </div>
-                      <div className="lg:col-span-2">
-                        <label className="block text-[10px] font-extrabold uppercase tracking-wider text-zinc-500 mb-1.5">Address</label>
-                        <input type="text" value={address} onChange={(e) => setAddress(e.target.value)}
-                          className="w-full rounded-xl bg-white/60 border border-zinc-200 text-zinc-800 placeholder-zinc-400 px-3 py-2.5 text-sm focus:outline-none focus:border-sky-400 transition-all"
-                          placeholder="Street, city" />
-                      </div>
-                    </div>
-
-                    {/* Row 2: Visit type · Revisit picker */}
-                    <div className="grid grid-cols-3 gap-3">
-                      {([
-                        { val: "new",      label: "New Patient",  icon: "👤" },
-                        { val: "revisit",  label: "Revisit",      icon: "🔁" },
-                        { val: "followup", label: "Follow-up",    icon: "📋" },
-                      ] as const).map(({ val, label, icon }) => (
-                        <button key={val} type="button"
-                          onClick={() => { setVisitType(val); setRevisitPatientId(""); }}
-                          className={`py-2 rounded-xl border text-xs font-extrabold transition-all flex items-center justify-center gap-1.5 ${
-                            visitType === val
-                              ? "bg-sky-600 text-white border-sky-600 shadow-md"
-                              : "bg-white/60 border-zinc-200 text-zinc-600 hover:bg-white/80"
-                          }`}
-                        >{icon} {label}</button>
-                      ))}
-                    </div>
-
-                    {/* Revisit patient picker */}
-                    {(visitType === "revisit" || visitType === "followup") && (() => {
-                      const today = new Date().toISOString().split("T")[0];
-                      const candidates = queue.filter(q => q.followUp);
-                      if (candidates.length === 0) return (
-                        <p className="text-xs text-zinc-400 italic">No patients with a scheduled follow-up in queue.</p>
-                      );
-                      return (
-                        <div className="grid grid-cols-2 md:grid-cols-3 gap-2">
-                          {candidates.map(p => {
-                            const isEarly = p.followUp! > today;
-                            const selected = revisitPatientId === p.id;
-                            return (
-                              <button key={p.id} type="button"
-                                onClick={() => { setRevisitPatientId(p.id); setName(p.name); setAge(String(p.age)); setPhone(p.phone); setAddress(p.address); setGender(p.gender); if (p.doctorId) setDoctorId(p.doctorId); if (p.doctor) setDoctor(p.doctor); if (p.department) setDepartment(p.department); }}
-                                className={`text-left p-3 rounded-xl border text-xs transition-all ${selected ? "border-white bg-sky-50 text-zinc-800" : "border-zinc-200 bg-white/60 text-zinc-600 hover:bg-white/80"}`}
-                              >
-                                <p className="font-bold">{p.name}</p>
-                                <p className="text-zinc-400">{p.phone} · {p.age} y/o</p>
-                                {isEarly && <p className="text-amber-600 font-semibold mt-1">⚡ Early visit</p>}
-                              </button>
-                            );
-                          })}
-                        </div>
-                      );
-                    })()}
-
-                    {/* Row 3: Doctor · Reason · Priority */}
-                    <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
-                      <div>
-                        <label className="block text-[10px] font-extrabold uppercase tracking-wider text-zinc-500 mb-1.5">Assign Doctor (optional)</label>
-                        <select value={doctorId} onChange={(e) => handleDoctorChange(e.target.value)}
-                          className="w-full rounded-xl bg-white/60 border border-zinc-200 text-zinc-800 px-3 py-2.5 text-sm focus:outline-none focus:border-sky-400 transition-all">
-                          <option value="">Unassigned — triage first</option>
-                          {doctors.map((d) => (
-                            <option key={d.id} value={d.id}>Dr. {d.name} ({d.department})</option>
-                          ))}
-                        </select>
-                      </div>
-                      <div>
-                        <label className="block text-[10px] font-extrabold uppercase tracking-wider text-zinc-500 mb-1.5">Reason for Visit</label>
-                        <input type="text" value={reason} onChange={(e) => setReason(e.target.value)}
-                          className="w-full rounded-xl bg-white/60 border border-zinc-200 text-zinc-800 placeholder-zinc-400 px-3 py-2.5 text-sm focus:outline-none focus:border-sky-400 transition-all"
-                          placeholder="Symptoms, checkup, etc..." />
-                      </div>
-                      <div>
-                        <label className="block text-[10px] font-extrabold uppercase tracking-wider text-zinc-500 mb-1.5">Triage Priority</label>
-                        <div className="grid grid-cols-4 gap-1">
-                          {["Low","Medium","High","Critical"].map(p => (
-                            <button key={p} type="button" onClick={() => setPriority(p)}
-                              className={`py-2 rounded-lg text-[10px] font-extrabold uppercase transition-all ${
-                                priority === p
-                                  ? p === "Critical" ? "bg-rose-500 text-zinc-800 shadow-md"
-                                    : p === "High" ? "bg-orange-500 text-zinc-800 shadow-md"
-                                    : p === "Medium" ? "bg-amber-400 text-zinc-800 shadow-md"
-                                    : "bg-white text-zinc-700 shadow-md"
-                                  : "bg-white/60 border border-zinc-200 text-zinc-400 hover:bg-white/80"
-                              }`}
-                            >{p}</button>
-                          ))}
-                        </div>
-                      </div>
-                    </div>
-
-                    {/* Row 4: Vitals */}
-                    <div className="grid grid-cols-3 gap-3">
-                      <div>
-                        <label className="block text-[10px] font-extrabold uppercase tracking-wider text-zinc-500 mb-1.5">Blood Pressure</label>
-                        <input type="text" value={bp} onChange={(e) => setBp(e.target.value)}
-                          className="w-full rounded-xl bg-white/60 border border-zinc-200 text-zinc-800 placeholder-zinc-400 px-3 py-2.5 text-sm focus:outline-none focus:border-sky-400 transition-all"
-                          placeholder="120/80" />
-                      </div>
-                      <div>
-                        <label className="block text-[10px] font-extrabold uppercase tracking-wider text-zinc-500 mb-1.5">Pulse (bpm)</label>
-                        <input type="text" value={pulse} onChange={(e) => setPulse(e.target.value)}
-                          className="w-full rounded-xl bg-white/60 border border-zinc-200 text-zinc-800 placeholder-zinc-400 px-3 py-2.5 text-sm focus:outline-none focus:border-sky-400 transition-all"
-                          placeholder="72" />
-                      </div>
-                      <div>
-                        <label className="block text-[10px] font-extrabold uppercase tracking-wider text-zinc-500 mb-1.5">Temperature (°F)</label>
-                        <input type="text" value={temperature} onChange={(e) => setTemperature(e.target.value)}
-                          className="w-full rounded-xl bg-white/60 border border-zinc-200 text-zinc-800 placeholder-zinc-400 px-3 py-2.5 text-sm focus:outline-none focus:border-sky-400 transition-all"
-                          placeholder="98.6" />
-                      </div>
-                    </div>
-
-                    {/* Row 5: VIP toggle + Submit */}
-                    <div className="flex items-center gap-4 pt-1">
-                      <div className={`flex items-center gap-3 px-4 py-2.5 rounded-xl border transition-all cursor-pointer ${isVip ? "bg-amber-500/20 border-amber-400/40" : "bg-white/60 border-zinc-200"}`}
-                        onClick={() => { setIsVip(v => !v); setRequestedVipToken(""); }}>
-                        <button type="button" className={`relative inline-flex h-5 w-9 items-center rounded-full transition-colors ${isVip ? "bg-amber-500" : "bg-sky-50"}`}>
-                          <span className={`inline-block h-3.5 w-3.5 transform rounded-full bg-white shadow transition-transform ${isVip ? "translate-x-4" : "translate-x-0.5"}`} />
-                        </button>
-                        <span className={`text-xs font-bold ${isVip ? "text-amber-200" : "text-zinc-500"}`}>VIP Patient</span>
-                      </div>
-                      {isVip && (
-                        <div className="flex gap-1">
-                          {[1,2,3,4,5].map(n => (
-                            <button key={n} type="button"
-                              onClick={() => setRequestedVipToken(requestedVipToken === n ? "" : n)}
-                              className={`w-10 h-9 rounded-lg text-xs font-extrabold border transition-all ${requestedVipToken === n ? "bg-amber-500 border-amber-500 text-zinc-800" : "bg-white/60 border-zinc-200 text-zinc-500 hover:bg-amber-500/20"}`}
-                            >T00{n}</button>
-                          ))}
-                        </div>
-                      )}
-                      <button type="submit"
-                        className={`ml-auto px-8 py-2.5 rounded-xl text-sm font-extrabold text-zinc-800 transition-all shadow-lg ${
-                          isVip ? "bg-amber-500 hover:bg-amber-600 shadow-amber-500/25" : "bg-sky-50 hover:bg-white/30 border border-zinc-300"
-                        }`}>
-                        {isVip ? "Register VIP Patient" : "Check In to Queue"}
-                      </button>
-                    </div>
-                  </form>
+                  <button
+                    type="submit"
+                    className={`px-6 py-2.5 rounded-xl text-xs font-black tracking-wide uppercase shadow-sm transition-all ${
+                      isVip 
+                        ? "bg-amber-500 hover:bg-amber-600 text-zinc-950" 
+                        : "bg-sky-600 hover:bg-sky-700 text-white"
+                    }`}
+                  >
+                    {isVip ? "Register VIP Check-In" : "Check In to Live Queue"}
+                  </button>
                 </div>
-              </div>
-            </div>
-          )}
 
+              </form>
+            </div>
+          </div>
+        )}
+
+          {/* ── Appointments Tab ── */}
           {activeTab === "appointments" && (
             <div className="rounded-3xl bg-white border border-zinc-200 shadow-sm p-6">
               <h2 className="text-xl font-extrabold text-zinc-900 mb-2">Booked Appointments Catalog</h2>
               <p className="text-xs text-zinc-500 mb-6">Process client arrivals instantly below into live active queue tokens.</p>
-              
+
               <div className="overflow-x-auto">
                 <table className="w-full text-left border-collapse text-sm">
                   <thead>
@@ -1284,6 +1605,7 @@ export default function ReceptionistDashboard() {
             </div>
           )}
 
+          {/* ── Payments Tab ── */}
           {activeTab === "payments" && (
             <div className="space-y-6">
               {/* Financial Metrics Summary */}
@@ -1310,7 +1632,7 @@ export default function ReceptionistDashboard() {
                 {/* Record Invoice Form */}
                 <section className="bg-white border border-zinc-200 rounded-3xl shadow-sm p-6 h-fit">
                   <h3 className="text-lg font-extrabold text-zinc-900 mb-4">Record New Invoice Payment</h3>
-                  
+
                   {payMessage && (
                     <div className={`p-3 rounded-xl text-xs font-bold mb-4 ${payMessageType === "success" ? "bg-emerald-50 text-emerald-700 border border-emerald-200" : "bg-rose-50 text-rose-700 border border-rose-200"}`}>
                       {payMessage}
@@ -1322,6 +1644,19 @@ export default function ReceptionistDashboard() {
                       <label className="block text-xs font-bold text-zinc-600 mb-1">Patient Name</label>
                       <input type="text" value={fPatientName} onChange={(e) => setFPatientName(e.target.value)} className="w-full text-xs rounded-xl border border-zinc-300 p-2.5" placeholder="Johnathan Doe" />
                     </div>
+
+                    {/* FIX #4 — Patient ID field added */}
+                    <div>
+                      <label className="block text-xs font-bold text-zinc-600 mb-1">Patient ID (optional)</label>
+                      <input type="text" value={fPatientId} onChange={(e) => setFPatientId(e.target.value)} className="w-full text-xs rounded-xl border border-zinc-300 p-2.5" placeholder="e.g. P-00123" />
+                    </div>
+
+                    {/* FIX #2 — Bill Date field added */}
+                    <div>
+                      <label className="block text-xs font-bold text-zinc-600 mb-1">Bill Date</label>
+                      <input type="date" value={fDate} onChange={(e) => setFDate(e.target.value)} className="w-full text-xs rounded-xl border border-zinc-300 p-2.5" />
+                    </div>
+
                     <div className="grid grid-cols-2 gap-4">
                       <div>
                         <label className="block text-xs font-bold text-zinc-600 mb-1">Bill Amount (₹)</label>
@@ -1357,6 +1692,13 @@ export default function ReceptionistDashboard() {
                       <label className="block text-xs font-bold text-zinc-600 mb-1">Transaction Ref / Cheque No.</label>
                       <input type="text" value={fReferenceNo} onChange={(e) => setFReferenceNo(e.target.value)} className="w-full text-xs rounded-xl border border-zinc-300 p-2.5" placeholder="TXN98724125" />
                     </div>
+
+                    {/* FIX #5 — Notes field added */}
+                    <div>
+                      <label className="block text-xs font-bold text-zinc-600 mb-1">Notes (optional)</label>
+                      <textarea value={fNotes} onChange={(e) => setFNotes(e.target.value)} className="w-full text-xs rounded-xl border border-zinc-300 p-2.5 resize-none" rows={2} placeholder="Any additional remarks..." />
+                    </div>
+
                     <button type="submit" className="w-full py-2.5 rounded-xl text-xs font-bold text-white bg-sky-600 hover:bg-sky-700 transition-colors">
                       Process Ledger Transaction
                     </button>
@@ -1368,6 +1710,13 @@ export default function ReceptionistDashboard() {
                   <div className="p-4 border-b border-zinc-200 flex items-center justify-between gap-4 bg-zinc-50/50">
                     <h3 className="text-sm font-extrabold text-zinc-800">Historical Invoices Ledger Logs</h3>
                     <input type="text" value={search} onChange={(e) => setSearch(e.target.value)} className="text-xs rounded-xl border border-zinc-300 p-2 w-48 bg-white" placeholder="Search logs..." />
+                  </div>
+
+                  {/* FIX #6 — filteredCollected and filteredDue displayed here */}
+                  <div className="px-4 py-2 bg-zinc-50 border-b border-zinc-100 flex gap-4 text-xs text-zinc-500">
+                    Filtered: Collected <span className="font-bold text-emerald-600 ml-1">{fmtCurrency(filteredCollected)}</span>
+                    <span className="mx-1">·</span>
+                    Due <span className="font-bold text-amber-600 ml-1">{fmtCurrency(filteredDue)}</span>
                   </div>
 
                   <div className="flex-1 overflow-x-auto">

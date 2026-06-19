@@ -51,8 +51,8 @@ export async function register(req: Request, res: Response) {
       return res.status(400).json({ error: "Employee ID is required." });
     }
 
-    if (!role || (role !== "doctor" && role !== "receptionist")) {
-      return res.status(400).json({ error: "Role must be either doctor or receptionist." });
+    if (!role || (role !== "doctor" && role !== "receptionist" && role !== "clinic_admin")) {
+      return res.status(400).json({ error: "Role must be doctor, receptionist, or clinic_admin." });
     }
 
     if (role === "doctor" && (!department || typeof department !== "string" || department.trim().length === 0)) {

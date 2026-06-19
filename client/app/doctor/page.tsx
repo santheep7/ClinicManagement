@@ -3,12 +3,19 @@
 import { useEffect, useState, useRef } from "react";
 import Image from "next/image";
 
+const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:4000";
+
 interface Patient {
   id: string;
+  patientId?: string;
   queueId?: string;
   name: string;
   age: number;
   gender: string;
+  phone?: string;
+  doctor?: string;
+  department?: string;
+  visitCount?: number;
   time: string;
   status: "pending" | "treating" | "completed";
   visitType?: "new" | "revisit" | "followup";
@@ -17,6 +24,15 @@ interface Patient {
     bloodPressure: string;
     heartRate: number;
     temperature: number;
+    spO2?: number;
+    respiratoryRate?: number;
+    weight?: number;
+    height?: number;
+    bmi?: number;
+    iop?: string;
+    peakFlow?: number;
+    bloodGlucose?: number;
+    painScore?: number;
   };
   symptoms: string;
   chiefComplaint: string;
@@ -77,6 +93,7 @@ export default function Dashboard() {
   const [loading, setLoading] = useState(true);
   const [clinicName, setClinicName] = useState("Hospital");
   const [clinicAddress, setClinicAddress] = useState("");
+  const [vitalConfigs, setVitalConfigs] = useState<Record<string, string[]>>({});
 
   const [patients, setPatients] = useState<Patient[]>([]);
   const [sidebarOpen, setSidebarOpen] = useState(true);
@@ -90,13 +107,68 @@ export default function Dashboard() {
 
   const [newMedName, setNewMedName] = useState("");
   const [newMedDosage, setNewMedDosage] = useState("");
+  const [customDosage, setCustomDosage] = useState("");
   const [newMedFreq, setNewMedFreq] = useState("");
   const [newMedDays, setNewMedDays] = useState("");
   const [newMedRemarks, setNewMedRemarks] = useState("");
+  // State for dosage options based on selected drug
+  const [dosageOptions, setDosageOptions] = useState<string[]>([]);
+  const DEFAULT_DOSAGES = [
+    "5mg", "10mg", "25mg", "50mg", "100mg", "250mg", "500mg", "650mg", "1g",
+    "1 tablet", "2 tablets", "1 capsule", "5ml", "10ml", "15ml",
+    "1 puff", "2 puffs", "1 drop", "2 drops", "Apply thin layer"
+  ];
+  // Mock dosage map (drug -> dosage list)
+  const dosageMap: Record<string, string[]> = {
+    Paracetamol: ["500mg", "650mg", "1g", "5ml", "10ml", "15ml"],
+    Ibuprofen: ["200mg", "400mg", "600mg", "800mg"],
+    Aspirin: ["81mg", "150mg", "325mg", "500mg"],
+    Clopidogrel: ["75mg", "150mg", "300mg"],
+    Atorvastatin: ["5mg", "10mg", "20mg", "40mg", "80mg"],
+    Rosuvastatin: ["5mg", "10mg", "20mg", "40mg", "80mg"],
+    Metoprolol: ["25mg", "50mg", "100mg", "200mg"],
+    Atenolol: ["25mg", "50mg", "100mg"],
+    Amlodipine: ["2.5mg", "5mg", "10mg"],
+    Losartan: ["25mg", "50mg", "100mg"],
+    Lisinopril: ["2.5mg", "5mg", "10mg", "20mg"],
+    Ramipril: ["2.5mg", "5mg", "10mg", "20mg"],
+    Furosemide: ["20mg", "40mg", "80mg"],
+    Spironolactone: ["25mg", "50mg", "100mg"],
+    Amoxicillin: ["250mg", "500mg", "875mg"],
+    Azithromycin: ["250mg", "500mg"],
+    Ciprofloxacin: ["250mg", "500mg", "750mg"],
+    Doxycycline: ["100mg"],
+    Metronidazole: ["250mg", "400mg", "500mg"],
+    Omeprazole: ["20mg", "40mg"],
+    Pantoprazole: ["20mg", "40mg"],
+    Esomeprazole: ["20mg", "40mg"],
+    Rabeprazole: ["20mg", "40mg"],
+    Domperidone: ["10mg", "30mg"],
+    Ondansetron: ["4mg", "8mg"],
+    Cetirizine: ["5mg", "10mg"],
+    Loratadine: ["10mg"],
+    Prednisolone: ["5mg", "10mg", "20mg", "40mg"],
+    Dexamethasone: ["0.5mg", "1mg", "2mg", "4mg", "8mg"],
+    Metformin: ["500mg", "850mg", "1000mg"],
+    Gabapentin: ["100mg", "300mg", "400mg", "600mg", "800mg"],
+    Pregabalin: ["50mg", "75mg", "150mg", "300mg"],
+    Levetiracetam: ["250mg", "500mg", "750mg", "1000mg"],
+    Clonazepam: ["0.25mg", "0.5mg", "1mg", "2mg"],
+    Alprazolam: ["0.25mg", "0.5mg", "1mg", "2mg"],
+  };
 
   const [editBP, setEditBP] = useState("");
-  const [editHR, setEditHR] = useState(0);
-  const [editTemp, setEditTemp] = useState(0);
+  const [editHR, setEditHR] = useState("");
+  const [editTemp, setEditTemp] = useState("");
+  const [editSpO2, setEditSpO2] = useState("");
+  const [editRR, setEditRR] = useState("");
+  const [editWeight, setEditWeight] = useState("");
+  const [editHeight, setEditHeight] = useState("");
+  const [editIop, setEditIop] = useState("");
+  const [editPeakFlow, setEditPeakFlow] = useState("");
+  const [editBloodGlucose, setEditBloodGlucose] = useState("");
+  const [editPainScore, setEditPainScore] = useState("");
+  
   const [editSymptoms, setEditSymptoms] = useState("");
   const [editChiefComplaint, setEditChiefComplaint] = useState("");
   const [editPrimaryDiagnosis, setEditPrimaryDiagnosis] = useState("");
@@ -114,6 +186,24 @@ export default function Dashboard() {
   useEffect(() => {
     try { setFavMedicines(JSON.parse(localStorage.getItem("favMedicines") || "[]")); } catch {}
   }, []);
+
+  // Update dosage options when medication name changes
+  useEffect(() => {
+    if (newMedName) {
+      const matchKey = Object.keys(dosageMap).find(
+        (key) => key.toLowerCase() === newMedName.trim().toLowerCase()
+      );
+      if (matchKey) {
+        setDosageOptions(dosageMap[matchKey]);
+      } else {
+        setDosageOptions(DEFAULT_DOSAGES);
+      }
+    } else {
+      setDosageOptions(DEFAULT_DOSAGES);
+    }
+    // Reset selected dosage if it is not in the new options
+    setNewMedDosage("");
+  }, [newMedName]);
 
   const [queue, setQueue] = useState<QueueItem[]>([]);
 
@@ -171,6 +261,22 @@ export default function Dashboard() {
     } else {
       setUser(JSON.parse(storedUser));
       setLoading(false);
+
+      // Fetch vitals configurations for the clinic
+      fetch(`${API_BASE_URL}/api/vital-configs`, {
+        headers: { Authorization: `Bearer ${token}` }
+      })
+        .then(res => res.json())
+        .then(data => {
+          if (data.configs) {
+            const mapping: Record<string, string[]> = {};
+            data.configs.forEach((cfg: any) => {
+              mapping[cfg.department.toLowerCase()] = cfg.vitals;
+            });
+            setVitalConfigs(mapping);
+          }
+        })
+        .catch(console.error);
     }
   }, []);
 
@@ -214,9 +320,10 @@ export default function Dashboard() {
 
     return {
       id: `PT-${item.id.replace(/\D/g, "")}`,
+      patientId: `PT-${item.id.replace(/\D/g, "")}`,
       queueId: item.queueId || item.id,
       name: item.name,
-      age: item.age,
+      age: Number(item.age),
       gender: item.gender,
       time: item.checkInTime,
       status: "pending",
@@ -231,7 +338,7 @@ export default function Dashboard() {
       tests: [],
       medications: [],
       allergies: detectedAllergies.length > 0 ? detectedAllergies : undefined,
-      pastVisits: prevVisits.length > 0 ? prevVisits : undefined,
+      pastVisits: prevVisits.length > 0 ? prevVisits : [],
     };
   };
 
@@ -259,6 +366,7 @@ export default function Dashboard() {
             chiefComplaint: patient.chiefComplaint || "",
             primaryDiagnosis: patient.primaryDiagnosis || "",
             tests: patient.tests || [],
+            pastVisits: patient.pastVisits || [],
           }));
         setPatients(loadedPatients);
       } catch (e) {}
@@ -299,12 +407,18 @@ export default function Dashboard() {
           symptoms?: string; chiefComplaint?: string; primaryDiagnosis?: string;
           notes?: string; followUp?: string; tests?: string[]; medications?: Patient["medications"];
           patientId?: string; status?: string; visitType?: "new" | "revisit" | "followup";
+          visitCount?: number;
         }) => ({
           id: item.id,
+          patientId: item.patientId,
           queueId: item.queueId || item.id,
           name: item.name,
           age: item.age,
           gender: item.gender,
+          phone: item.phone,
+          doctor: item.doctor,
+          department: item.department,
+          visitCount: item.visitCount,
           time: item.checkInTime,
           status: (item.status as Patient["status"]) || "pending",
           visitType: item.visitType,
@@ -373,6 +487,14 @@ export default function Dashboard() {
       setEditBP(activePatient.vitals.bloodPressure);
       setEditHR(activePatient.vitals.heartRate);
       setEditTemp(activePatient.vitals.temperature);
+      setEditSpO2(activePatient.vitals.spO2 ?? 0);
+      setEditRR(activePatient.vitals.respiratoryRate ?? 0);
+      setEditWeight(activePatient.vitals.weight ?? 0);
+      setEditHeight(activePatient.vitals.height ?? 0);
+      setEditIop(activePatient.vitals.iop ?? "");
+      setEditPeakFlow(activePatient.vitals.peakFlow ?? 0);
+      setEditBloodGlucose(activePatient.vitals.bloodGlucose ?? 0);
+      setEditPainScore(activePatient.vitals.painScore ?? 0);
       setEditSymptoms(activePatient.symptoms ?? "");
       setEditChiefComplaint(activePatient.chiefComplaint ?? "");
       setEditPrimaryDiagnosis(activePatient.primaryDiagnosis ?? "");
@@ -380,58 +502,83 @@ export default function Dashboard() {
       setEditFollowUp(activePatient.followUp ?? "");
       setEditTests(activePatient.tests ?? []);
     }
-  }, [activePatient]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activePatient?.id]);
 
   useEffect(() => {
     if (!activePatient) return;
     setEhrTab("notes");
-    if (activePatient.pastVisits !== undefined) return;
+    if (activePatient.pastVisits !== undefined) {
+      console.log("[History Effect] pastVisits already loaded, skipping fetch");
+      return;
+    }
 
     const API_BASE = process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:4000";
     const token = localStorage.getItem("accessToken");
-    if (!token) return;
+    if (!token) {
+      console.warn("[History Effect] No access token, cannot fetch history");
+      // Initialize empty pastVisits to prevent indefinite spinner
+      setActivePatient(prev => prev && { ...prev, pastVisits: [] });
+      setPatients(prev => prev.map(p => p.id === activePatient?.id ? { ...p, pastVisits: [] } : p));
+      return;
+    }
 
     const fetchHistory = async () => {
+      console.log("[History Fetch] Starting fetch for patient", activePatient?.queueId);
       try {
         const recRes = await fetch(`${API_BASE}/api/patients/${activePatient.queueId}`, {
           headers: { Authorization: `Bearer ${token}` },
         });
-        if (!recRes.ok) return;
+        if (!recRes.ok) {
+          console.error("[History Fetch] Failed to fetch patient record", recRes.status);
+          return;
+        }
         const recData = await recRes.json();
         const phone: string = recData.patient?.phone;
-        if (!phone) return;
+        if (!phone) {
+          console.warn("[History Fetch] No phone number found for patient");
+          return;
+        }
 
         const histRes = await fetch(
           `${API_BASE}/api/patients/history/${encodeURIComponent(phone)}?excludeId=${activePatient.queueId}`,
           { headers: { Authorization: `Bearer ${token}` } }
         );
-        if (!histRes.ok) return;
+        if (!histRes.ok) {
+          console.error("[History Fetch] Failed to fetch patient history", histRes.status);
+          return;
+        }
         const histData = await histRes.json();
         const history: Patient["pastVisits"] = (histData.history || []).map((h: any) => ({
-          date:          h.date,
-          diagnosis:     h.diagnosis || "",
-          medications:   h.medications || [],
-          tests:         h.tests || [],
-          notes:         h.notes || "",
-          visitType:     h.visitType,
+          date: h.date,
+          diagnosis: h.diagnosis || "",
+          medications: h.medications || [],
+          tests: h.tests || [],
+          notes: h.notes || "",
+          visitType: h.visitType,
           chiefComplaint: h.chiefComplaint,
-          symptoms:      h.symptoms,
+          symptoms: h.symptoms,
           bloodPressure: h.bloodPressure,
-          heartRate:     h.heartRate,
-          temperature:   h.temperature,
-          doctor:        h.doctor,
-          patientId:     h.patientId,
+          heartRate: h.heartRate,
+          temperature: h.temperature,
+          doctor: h.doctor,
+          patientId: h.patientId,
         }));
 
         if (history && history.length > 0) {
-          const updated = { ...activePatient, pastVisits: history };
-          setActivePatient(updated);
-          setPatients(prev => prev.map(p => p.id === updated.id ? updated : p));
+          console.log(`[History Fetch] Retrieved ${history.length} past visits`);
+          setActivePatient(prev => prev && prev.id === activePatient.id ? { ...prev, pastVisits: history } : prev);
+          setPatients(prev => prev.map(p => p.id === activePatient.id ? { ...p, pastVisits: history } : p));
         } else {
-          setActivePatient(prev => prev ? { ...prev, pastVisits: [] } : prev);
+          console.log("[History Fetch] No past visits found, setting empty array");
+          setActivePatient(prev => prev && prev.id === activePatient.id ? { ...prev, pastVisits: [] } : prev);
+          setPatients(prev => prev.map(p => p.id === activePatient.id ? { ...p, pastVisits: [] } : p));
         }
       } catch (err) {
-        console.error("Failed to load patient history:", err);
+        console.error('[History Fetch] Unexpected error while loading patient history:', err);
+        // Ensure spinner stops by setting empty pastVisits on error
+        setActivePatient(prev => prev && { ...prev, pastVisits: [] });
+        setPatients(prev => prev.map(p => p.id === activePatient?.id ? { ...p, pastVisits: [] } : p));
       }
     };
 
@@ -451,34 +598,64 @@ export default function Dashboard() {
     if (autoSaveTimer.current) {
       window.clearTimeout(autoSaveTimer.current);
     }
+    const buildVitals = () => ({
+      bloodPressure: editBP,
+      heartRate: Number(editHR),
+      temperature: Number(editTemp),
+      ...(editSpO2     ? { spO2: Number(editSpO2) }             : {}),
+      ...(editRR       ? { respiratoryRate: Number(editRR) }     : {}),
+      ...(editWeight   ? { weight: Number(editWeight) }          : {}),
+      ...(editHeight   ? { height: Number(editHeight) }          : {}),
+      ...(editIop      ? { iop: editIop }                        : {}),
+      ...(editPeakFlow ? { peakFlow: Number(editPeakFlow) }      : {}),
+      ...(editBloodGlucose ? { bloodGlucose: Number(editBloodGlucose) } : {}),
+      ...(editPainScore    ? { painScore: Number(editPainScore) }       : {}),
+    });
     autoSaveTimer.current = window.setTimeout(() => {
-      const updatedPatient: Patient = {
-        ...activePatient,
-        symptoms: editSymptoms,
-        chiefComplaint: editChiefComplaint,
-        primaryDiagnosis: editPrimaryDiagnosis,
-        notes: editNotes,
-        tests: editTests,
-        followUp: editFollowUp || undefined,
-      };
-      setActivePatient(updatedPatient);
-      setPatients((prev) => prev.map(p => p.id === updatedPatient.id ? updatedPatient : p));
+      setActivePatient(prev => {
+        if (!prev || prev.id !== activePatient.id) return prev;
+        return {
+          ...prev,
+          symptoms: editSymptoms,
+          chiefComplaint: editChiefComplaint,
+          primaryDiagnosis: editPrimaryDiagnosis,
+          notes: editNotes,
+          tests: editTests,
+          vitals: buildVitals(),
+          followUp: editFollowUp || undefined,
+        };
+      });
+      setPatients((prev) => prev.map(p => {
+        if (p.id !== activePatient.id) return p;
+        return {
+          ...p,
+          symptoms: editSymptoms,
+          chiefComplaint: editChiefComplaint,
+          primaryDiagnosis: editPrimaryDiagnosis,
+          notes: editNotes,
+          tests: editTests,
+          vitals: buildVitals(),
+          followUp: editFollowUp || undefined,
+        };
+      }));
     }, 2000);
 
     return () => {
       if (autoSaveTimer.current) window.clearTimeout(autoSaveTimer.current);
     };
-  }, [editSymptoms, editChiefComplaint, editPrimaryDiagnosis, editNotes, editTests, editFollowUp, activePatient]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [editSymptoms, editChiefComplaint, editPrimaryDiagnosis, editNotes, editTests, editFollowUp, editBP, editHR, editTemp, editSpO2, editRR, editWeight, editHeight, editIop, editPeakFlow, editBloodGlucose, editPainScore, activePatient?.id]);
 
   function addMedication(e: React.FormEvent) {
     e.preventDefault();
-    if (!activePatient || !newMedName.trim() || !newMedDosage.trim() || !newMedFreq.trim()) return;
+    const finalDosage = newMedDosage === "custom" ? customDosage : newMedDosage;
+    if (!activePatient || !newMedName.trim() || !finalDosage.trim() || !newMedFreq.trim()) return;
 
     const updatedMeds = [
       ...activePatient.medications,
       {
         name: newMedName.trim(),
-        dosage: newMedDosage.trim(),
+        dosage: finalDosage.trim(),
         frequency: newMedFreq.trim(),
         days: newMedDays.trim(),
         remarks: newMedRemarks.trim() || undefined,
@@ -491,6 +668,7 @@ export default function Dashboard() {
 
     setNewMedName("");
     setNewMedDosage("");
+    setCustomDosage("");
     setNewMedFreq("");
     setNewMedDays("");
     setNewMedRemarks("");
@@ -702,7 +880,7 @@ export default function Dashboard() {
 
     sectionTitle("Patient Demographics");
     infoTableRows([
-      ["Patient ID",  activePatient.id],
+      ["Patient ID",  activePatient.patientId || activePatient.id],
       ["Full Name",   activePatient.name],
       ["Age",         activePatient.age ? `${activePatient.age} Years` : "-"],
       ["Gender",      activePatient.gender || "-"],
@@ -811,6 +989,20 @@ export default function Dashboard() {
   function savePatientClinicalNotes() {
     if (!activePatient) return;
 
+    const builtVitals: Patient["vitals"] = {
+      bloodPressure: editBP,
+      heartRate: Number(editHR),
+      temperature: Number(editTemp),
+      ...(editSpO2        ? { spO2: Number(editSpO2) }               : {}),
+      ...(editRR          ? { respiratoryRate: Number(editRR) }       : {}),
+      ...(editWeight      ? { weight: Number(editWeight) }            : {}),
+      ...(editHeight      ? { height: Number(editHeight) }            : {}),
+      ...(editIop         ? { iop: editIop }                          : {}),
+      ...(editPeakFlow    ? { peakFlow: Number(editPeakFlow) }        : {}),
+      ...(editBloodGlucose ? { bloodGlucose: Number(editBloodGlucose) } : {}),
+      ...(editPainScore    ? { painScore: Number(editPainScore) }       : {}),
+    };
+
     const updatedPatient: Patient = {
       ...activePatient,
       symptoms: editSymptoms,
@@ -818,11 +1010,7 @@ export default function Dashboard() {
       primaryDiagnosis: editPrimaryDiagnosis,
       notes: editNotes,
       tests: editTests,
-      vitals: {
-        bloodPressure: editBP,
-        heartRate: Number(editHR),
-        temperature: Number(editTemp),
-      },
+      vitals: builtVitals,
       followUp: editFollowUp || undefined,
     };
 
@@ -843,6 +1031,14 @@ export default function Dashboard() {
           bloodPressure: editBP,
           heartRate: Number(editHR),
           temperature: Number(editTemp),
+          spO2: editSpO2 || undefined,
+          respiratoryRate: editRR || undefined,
+          weight: editWeight || undefined,
+          height: editHeight || undefined,
+          iop: editIop || undefined,
+          peakFlow: editPeakFlow || undefined,
+          bloodGlucose: editBloodGlucose || undefined,
+          painScore: editPainScore || undefined,
           followUp: editFollowUp || undefined,
           medications: updatedPatient.medications,
         }),
@@ -969,6 +1165,226 @@ export default function Dashboard() {
   const isDoctor = user.role === "doctor";
   const vitalsRequirements = evaluateVitalRequirements(recReason);
 
+  // ─── Department-specific vitals configuration ─────────────────────────────
+  // Each entry defines the vital cards shown in the EHR panel for that specialty.
+  // Fields: key (matches state/vitals object), label, unit, color classes, inputType.
+  type VitalField = {
+    key: string;
+    label: string;
+    unit: string;
+    color: string;           // Tailwind bg+border+label color classes
+    inputType: "text" | "number";
+    step?: string;
+    placeholder: string;
+  };
+
+  const ALL_VITALS: Record<string, VitalField> = {
+    bloodPressure:   { key: "bloodPressure",   label: "Blood Pressure",    unit: "mmHg",  color: "bg-sky-50/60 dark:bg-sky-950/20 border-sky-100 dark:border-sky-900/40 text-sky-500",     inputType: "text",   placeholder: "120/80" },
+    heartRate:       { key: "heartRate",       label: "Heart Rate",        unit: "bpm",   color: "bg-rose-50/60 dark:bg-rose-950/20 border-rose-100 dark:border-rose-900/40 text-rose-500",   inputType: "number", placeholder: "72" },
+    temperature:     { key: "temperature",     label: "Temperature",       unit: "°F",    color: "bg-amber-50/60 dark:bg-amber-950/20 border-amber-100 dark:border-amber-900/40 text-amber-500", inputType: "number", step: "0.1", placeholder: "98.6" },
+    spO2:            { key: "spO2",            label: "SpO₂",              unit: "%",     color: "bg-teal-50/60 dark:bg-teal-950/20 border-teal-100 dark:border-teal-900/40 text-teal-500",    inputType: "number", placeholder: "98" },
+    respiratoryRate: { key: "respiratoryRate", label: "Respiratory Rate",   unit: "/min",  color: "bg-indigo-50/60 dark:bg-indigo-950/20 border-indigo-100 dark:border-indigo-900/40 text-indigo-500", inputType: "number", placeholder: "16" },
+    weight:          { key: "weight",          label: "Weight",            unit: "kg",    color: "bg-violet-50/60 dark:bg-violet-950/20 border-violet-100 dark:border-violet-900/40 text-violet-500", inputType: "number", step: "0.1", placeholder: "70" },
+    height:          { key: "height",          label: "Height",            unit: "cm",    color: "bg-purple-50/60 dark:bg-purple-950/20 border-purple-100 dark:border-purple-900/40 text-purple-500", inputType: "number", placeholder: "170" },
+    iop:             { key: "iop",             label: "IOP (L / R)",       unit: "mmHg",  color: "bg-cyan-50/60 dark:bg-cyan-950/20 border-cyan-100 dark:border-cyan-900/40 text-cyan-500",      inputType: "text",   placeholder: "14/15" },
+    peakFlow:        { key: "peakFlow",        label: "Peak Flow",         unit: "L/min", color: "bg-emerald-50/60 dark:bg-emerald-950/20 border-emerald-100 dark:border-emerald-900/40 text-emerald-500", inputType: "number", placeholder: "400" },
+    bloodGlucose:    { key: "bloodGlucose",    label: "Blood Glucose",     unit: "mg/dL", color: "bg-orange-50/60 dark:bg-orange-950/20 border-orange-100 dark:border-orange-900/40 text-orange-500", inputType: "number", placeholder: "100" },
+    painScore:       { key: "painScore",       label: "Pain Score",        unit: "/ 10",  color: "bg-red-50/60 dark:bg-red-950/20 border-red-100 dark:border-red-900/40 text-red-500",         inputType: "number", placeholder: "0" },
+  };
+
+  // Department → ordered list of vital field keys to display
+  const DEPT_VITALS: Record<string, string[]> = {
+    Cardiology:      ["bloodPressure", "heartRate", "spO2", "respiratoryRate"],
+    Neurology:       ["bloodPressure", "heartRate", "temperature", "painScore"],
+    Pediatrics:      ["temperature", "heartRate", "respiratoryRate", "spO2", "weight", "height"],
+    Oncology:        ["bloodPressure", "heartRate", "temperature", "weight", "painScore"],
+    Orthopedics:     ["bloodPressure", "heartRate", "temperature", "painScore", "weight"],
+    Gynecology:      ["bloodPressure", "heartRate", "temperature", "weight", "height"],
+    Pulmonology:     ["spO2", "respiratoryRate", "peakFlow", "heartRate", "bloodPressure"],
+    Gastroenterology:["bloodPressure", "heartRate", "temperature", "weight", "painScore"],
+    Endocrinology:   ["bloodGlucose", "bloodPressure", "heartRate", "weight", "height"],
+    Nephrology:      ["bloodPressure", "heartRate", "temperature", "weight"],
+    Dermatology:     ["bloodPressure", "temperature", "painScore"],
+    Psychiatry:      ["bloodPressure", "heartRate", "temperature", "weight"],
+    Ophthalmology:   ["iop", "bloodPressure", "bloodGlucose"],
+    ENT:             ["bloodPressure", "heartRate", "temperature", "painScore"],
+    Urology:         ["bloodPressure", "heartRate", "temperature", "painScore"],
+    General:         ["bloodPressure", "heartRate", "temperature", "spO2"],
+  };
+
+  const DEPT_ALIASES: { key: string; keywords: string[] }[] = [
+    { key: "Cardiology",       keywords: ["cardio", "cardiac", "heart", "cardiolog"] },
+    { key: "Neurology",        keywords: ["neuro", "neurolog", "brain", "spine neurol"] },
+    { key: "Pediatrics",       keywords: ["pediatr", "paediatr", "paediat", "child", "neonat", "infant", "kid"] },
+    { key: "Oncology",         keywords: ["oncol", "cancer", "tumor", "tumour", "haematol", "hematol"] },
+    { key: "Orthopedics",      keywords: ["ortho", "bone", "joint", "musculo", "skeletal", "fracture"] },
+    { key: "Gynecology",       keywords: ["gynecol", "gynaecol", "obstet", "women", "maternal", "reproductive"] },
+    { key: "Pulmonology",      keywords: ["pulmon", "respir", "lung", "chest", "bronch", "thorac"] },
+    { key: "Gastroenterology", keywords: ["gastro", "digestive", "liver", "hepat", "bowel", "colon", "gi "] },
+    { key: "Endocrinology",    keywords: ["endocrin", "diabet", "thyroid", "hormone", "metabol"] },
+    { key: "Nephrology",       keywords: ["nephrol", "kidney", "renal", "urin"] },
+    { key: "Dermatology",      keywords: ["dermatol", "skin", "cosmet"] },
+    { key: "Psychiatry",       keywords: ["psychiatr", "mental", "psychol", "behav"] },
+    { key: "Ophthalmology",    keywords: ["ophthal", "eye", "vision", "retina", "ocul"] },
+    { key: "ENT",              keywords: ["ent", "ear", "nose", "throat", "otolaryng", "audiol"] },
+    { key: "Urology",          keywords: ["urol", "bladder", "prostate", "urinary"] },
+    { key: "General",          keywords: ["general", "family", "gp ", "internal", "medicine", "primary"] },
+  ];
+
+  function getDeptVitals(): VitalField[] {
+    const dept = (user?.department ?? "").trim().toLowerCase();
+    
+    // 1. Try to find a custom configuration matching this department directly
+    if (vitalConfigs[dept]) {
+      const fieldKeys = vitalConfigs[dept];
+      return fieldKeys.map(k => ALL_VITALS[k]).filter(Boolean);
+    }
+
+    // 2. Otherwise try keyword aliases mapping to configs if configured, or fall back to default groups
+    const match = DEPT_ALIASES.find(({ keywords }) =>
+      keywords.some(kw => dept.includes(kw))
+    );
+    
+    const resolvedKey = match ? match.key : "General";
+    
+    // Check if there is a config in database matching the resolved alias key (e.g. "pediatrics")
+    if (vitalConfigs[resolvedKey.toLowerCase()]) {
+      const fieldKeys = vitalConfigs[resolvedKey.toLowerCase()];
+      return fieldKeys.map(k => ALL_VITALS[k]).filter(Boolean);
+    }
+
+    // 3. Fallback to hardcoded defaults
+    const fieldKeys = DEPT_VITALS[resolvedKey] ?? DEPT_VITALS["General"];
+    return fieldKeys.map(k => ALL_VITALS[k]).filter(Boolean);
+  }
+
+  function getVitalValue(fieldKey: string): string | number {
+    switch (fieldKey) {
+      case "bloodPressure":   return editBP;
+      case "heartRate":       return editHR;
+      case "temperature":     return editTemp;
+      case "spO2":            return editSpO2;
+      case "respiratoryRate": return editRR;
+      case "weight":          return editWeight;
+      case "height":          return editHeight;
+      case "iop":             return editIop;
+      case "peakFlow":        return editPeakFlow;
+      case "bloodGlucose":    return editBloodGlucose;
+      case "painScore":       return editPainScore;
+      default:                return "";
+    }
+  }
+
+  function setVitalValue(fieldKey: string, raw: string) {
+    switch (fieldKey) {
+      case "bloodPressure":   setEditBP(raw); break;
+      case "heartRate":       setEditHR(Number(raw)); break;
+      case "temperature":     setEditTemp(Number(raw)); break;
+      case "spO2":            setEditSpO2(Number(raw)); break;
+      case "respiratoryRate": setEditRR(Number(raw)); break;
+      case "weight":          setEditWeight(Number(raw)); break;
+      case "height":          setEditHeight(Number(raw)); break;
+      case "iop":             setEditIop(raw); break;
+      case "peakFlow":        setEditPeakFlow(Number(raw)); break;
+      case "bloodGlucose":    setEditBloodGlucose(Number(raw)); break;
+      case "painScore":       setEditPainScore(Number(raw)); break;
+    }
+  }
+  // ─────────────────────────────────────────────────────────────────────────
+
+  /**
+   * Clinical reference ranges (adult, general-population defaults).
+   * Returns "high" | "low" | "normal" | "none" (no value entered).
+   * bloodPressure is parsed as systolic/diastolic.
+   */
+  type VitalStatus = "high" | "low" | "normal" | "none";
+  function getVitalStatus(key: string): VitalStatus {
+    switch (key) {
+      case "bloodPressure": {
+        if (!editBP || !editBP.includes("/")) return "none";
+        const [sys, dia] = editBP.split("/").map(Number);
+        if (isNaN(sys) || isNaN(dia)) return "none";
+        if (sys >= 140 || dia >= 90) return "high";
+        if (sys < 90  || dia < 60)  return "low";
+        return "normal";
+      }
+      case "heartRate":
+        if (!editHR) return "none";
+        if (editHR > 100) return "high";
+        if (editHR < 60)  return "low";
+        return "normal";
+      case "temperature":
+        if (!editTemp) return "none";
+        if (editTemp > 99.5) return "high";
+        if (editTemp < 97.0) return "low";
+        return "normal";
+      case "spO2":
+        if (!editSpO2) return "none";
+        if (editSpO2 < 90) return "low";
+        if (editSpO2 < 95) return "low";
+        return "normal";
+      case "respiratoryRate":
+        if (!editRR) return "none";
+        if (editRR > 20) return "high";
+        if (editRR < 12) return "low";
+        return "normal";
+      case "bloodGlucose":
+        if (!editBloodGlucose) return "none";
+        if (editBloodGlucose > 180) return "high";
+        if (editBloodGlucose < 70)  return "low";
+        return "normal";
+      case "painScore":
+        if (!editPainScore) return "none";
+        if (editPainScore >= 7) return "high";
+        if (editPainScore >= 4) return "high";
+        if (editPainScore > 0)  return "normal";
+        return "none";
+      case "peakFlow":
+        if (!editPeakFlow) return "none";
+        if (editPeakFlow < 200) return "low";
+        return "normal";
+      case "weight":
+      case "height":
+      case "iop":
+        return editWeight || editHeight || editIop ? "normal" : "none";
+      default:
+        return "none";
+    }
+  }
+
+  /** Renders the small indicator badge for a vital status */
+  function VitalIndicator({ status }: { status: VitalStatus }) {
+    if (status === "none") return null;
+    if (status === "high") return (
+      <span
+        title="Above normal range"
+        className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded-full text-[9px] font-black uppercase bg-red-100 dark:bg-red-950/40 text-red-600 dark:text-red-400 border border-red-200 dark:border-red-800/40"
+      >
+        <svg className="w-2.5 h-2.5" viewBox="0 0 10 10" fill="currentColor"><path d="M5 1 L9 9 L1 9 Z" /></svg>
+        High
+      </span>
+    );
+    if (status === "low") return (
+      <span
+        title="Below normal range"
+        className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded-full text-[9px] font-black uppercase bg-blue-100 dark:bg-blue-950/40 text-blue-600 dark:text-blue-400 border border-blue-200 dark:border-blue-800/40"
+      >
+        <svg className="w-2.5 h-2.5" viewBox="0 0 10 10" fill="currentColor"><path d="M5 9 L9 1 L1 1 Z" /></svg>
+        Low
+      </span>
+    );
+    // normal
+    return (
+      <span
+        title="Within normal range"
+        className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded-full text-[9px] font-black uppercase bg-emerald-100 dark:bg-emerald-950/40 text-emerald-600 dark:text-emerald-400 border border-emerald-200 dark:border-emerald-800/40"
+      >
+        <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 inline-block" />
+        Normal
+      </span>
+    );
+  }
+
   const DEPT_TESTS: Record<string, string[]> = {
     Cardiology: ["ECG / EKG","Echocardiogram","Troponin I","CRP (C-Reactive Protein)","Lipid Panel","D-Dimer","PT / INR","Chest X-Ray","CT Scan Chest","Blood Pressure Monitoring","Holter Monitor","Stress Test","BNP / NT-proBNP","Cardiac Catheterization"],
     Neurology: ["MRI Brain","MRI Spine","CT Scan Head","EEG","Nerve Conduction Study","Lumbar Puncture","CSF Analysis","Carotid Doppler","Visual Evoked Potentials","Serum B12","Thyroid Function (TSH)","Complete Blood Count (CBC)"],
@@ -989,22 +1405,149 @@ export default function Dashboard() {
   };
 
   const DEPT_MEDICINES: Record<string, string[]> = {
-    Cardiology: ["Aspirin","Clopidogrel","Atorvastatin","Rosuvastatin","Metoprolol","Atenolol","Amlodipine","Lisinopril","Ramipril","Losartan","Furosemide","Spironolactone","Warfarin","Rivaroxaban","Apixaban","Nitroglycerin","Isosorbide Mononitrate","Digoxin","Amiodarone","Bisoprolol"],
-    Neurology: ["Levetiracetam","Phenytoin","Valproate","Carbamazepine","Lamotrigine","Gabapentin","Pregabalin","Donepezil","Memantine","Sumatriptan","Topiramate","Baclofen","Clonazepam","Propranolol","Amitriptyline","Duloxetine","Methylphenidate","Modafinil"],
-    Pediatrics: ["Amoxicillin","Paracetamol","Ibuprofen","Azithromycin","Cetirizine","Salbutamol","ORS Sachets","Zinc Supplement","Vitamin A","Iron Supplement","Metronidazole","Ondansetron","Prednisolone","Fluticasone Inhaler"],
-    Oncology: ["Ondansetron","Dexamethasone","Aprepitant","Metoclopramide","Filgrastim","Erythropoietin","Morphine","Fentanyl","Tramadol","Paracetamol","Methotrexate","Leucovorin","Tamoxifen","Letrozole","Imatinib","Capecitabine"],
-    Orthopedics: ["Ibuprofen","Diclofenac","Naproxen","Celecoxib","Paracetamol","Tramadol","Morphine","Calcium + Vitamin D3","Alendronate","Zoledronic Acid","Methocarbamol","Baclofen","Colchicine","Allopurinol","Methotrexate","Sulfasalazine","Hydroxychloroquine"],
-    General: ["Amoxicillin","Azithromycin","Ciprofloxacin","Metronidazole","Paracetamol","Ibuprofen","Omeprazole","Pantoprazole","Cetirizine","Loratadine","Salbutamol","Prednisolone","Metformin","Atorvastatin","Amlodipine","Losartan","Metoprolol","ORS","Zinc","Vitamin C","Vitamin D3"],
-    Gynecology: ["Folic Acid","Iron Supplement","Progesterone","Estradiol","Mefenamic Acid","Tranexamic Acid","Fluconazole","Metronidazole","Clotrimazole","Utrogestan","Oxytocin","Misoprostol","Dydrogesterone","Letrozole","Clomiphene"],
-    Pulmonology: ["Salbutamol Inhaler","Ipratropium Inhaler","Fluticasone Inhaler","Budesonide Inhaler","Montelukast","Prednisolone","Doxycycline","Azithromycin","Amoxicillin-Clavulanate","Acetylcysteine","Tiotropium","Salmeterol","Theophylline"],
-    Gastroenterology: ["Omeprazole","Pantoprazole","Esomeprazole","Rabeprazole","Domperidone","Metoclopramide","Ondansetron","Metronidazole","Clarithromycin","Amoxicillin","Ursodeoxycholic Acid","Rifaximin","Lactulose","Mesalazine","Azathioprine"],
-    Endocrinology: ["Metformin","Glipizide","Glibenclamide","Sitagliptin","Empagliflozin","Insulin Glargine","Insulin Regular","Levothyroxine","Methimazole","Propylthiouracil","Hydrocortisone","Desmopressin","Vitamin D3","Calcium Carbonate","Alendronate"],
-    Nephrology: ["Furosemide","Spironolactone","Amlodipine","Lisinopril","Losartan","Erythropoietin","Sodium Bicarbonate","Calcium Carbonate","Sevelamer","Calcitriol","Darbepoetin","Tacrolimus","Mycophenolate","Prednisolone"],
-    Dermatology: ["Cetirizine","Loratadine","Hydrocortisone Cream","Betamethasone Cream","Clotrimazole Cream","Mupirocin Ointment","Tretinoin Cream","Acyclovir","Fluconazole","Doxycycline","Isotretinoin","Permethrin","Calamine Lotion"],
-    Psychiatry: ["Sertraline","Escitalopram","Fluoxetine","Amitriptyline","Duloxetine","Venlafaxine","Lithium","Valproate","Olanzapine","Risperidone","Quetiapine","Clonazepam","Lorazepam","Zolpidem","Methylphenidate","Aripiprazole"],
-    Ophthalmology: ["Timolol Eye Drops","Latanoprost Eye Drops","Tobramycin Eye Drops","Dexamethasone Eye Drops","Ciprofloxacin Eye Drops","Artificial Tears","Ketorolac Eye Drops","Cyclopentolate Eye Drops","Prednisolone Eye Drops"],
-    ENT: ["Amoxicillin","Azithromycin","Cetirizine","Oxymetazoline Nasal Spray","Budesonide Nasal Spray","Fluticasone Nasal Spray","Ciprofloxacin Ear Drops","Betahistine","Mometasone","Prednisolone"],
-    Urology: ["Tamsulosin","Finasteride","Sildenafil","Tadalafil","Oxybutynin","Solifenacin","Nitrofurantoin","Ciprofloxacin","Trimethoprim","Phenazopyridine","Dutasteride"],
+    Cardiology: [
+      "Aspirin", "Clopidogrel", "Atorvastatin", "Rosuvastatin", "Metoprolol", "Atenolol", "Amlodipine", 
+      "Lisinopril", "Ramipril", "Losartan", "Furosemide", "Spironolactone", "Warfarin", "Rivaroxaban", 
+      "Apixaban", "Nitroglycerin", "Isosorbide Mononitrate", "Digoxin", "Amiodarone", "Bisoprolol", 
+      "Carvedilol", "Enalapril", "Valsartan", "Sacubitril-Valsartan", "Diltiazem", "Verapamil", 
+      "Nifedipine", "Hydralazine", "Lovastatin", "Pravastatin", "Simvastatin", "Fenofibrate", 
+      "Gemfibrozil", "Ezetimibe", "Dabigatran", "Heparin", "Enoxaparin", "Dobutamine", "Dopamine", 
+      "Epinephrine", "Norepinephrine", "Milrinone", "Nitroprusside", "Alteplase"
+    ],
+    Neurology: [
+      "Levetiracetam", "Phenytoin", "Valproate", "Carbamazepine", "Lamotrigine", "Gabapentin", 
+      "Pregabalin", "Donepezil", "Memantine", "Sumatriptan", "Topiramate", "Baclofen", "Clonazepam", 
+      "Propranolol", "Amitriptyline", "Duloxetine", "Methylphenidate", "Modafinil", "Oxcarbazepine", 
+      "Zonisamide", "Lacosamide", "Primidone", "Phenobarbital", "Levodopa-Carbidopa", "Pramipexole", 
+      "Ropinirole", "Entacapone", "Selegiline", "Rasagiline", "Amantadine", "Galantamine", 
+      "Rivastigmine", "Rizatriptan", "Zolmitriptan", "Eletriptan", "Galcanezumab", "Erenumab", 
+      "Pyridostigmine", "Tizanidine", "Dantrolene", "Copaxone", "Fingolimod", "Ocrelizumab", "Interferon beta-1a"
+    ],
+    Pediatrics: [
+      "Amoxicillin", "Paracetamol", "Ibuprofen", "Azithromycin", "Cetirizine", "Salbutamol", 
+      "ORS Sachets", "Zinc Supplement", "Vitamin A", "Iron Supplement", "Metronidazole", 
+      "Ondansetron", "Prednisolone", "Fluticasone Inhaler", "Amoxicillin-Clavulanate", "Cefdinir", 
+      "Cephalexin", "Cefadroxil", "Claritin (Loratadine)", "Zyrtec (Cetirizine)", "Singulair (Montelukast)", 
+      "Budesonide Nebulizer", "Salbutamol Nebulizer", "Mupirocin Ointment", "Nystatin Drops", 
+      "Permethrin Cream", "Hydrocortisone 1% Cream", "Loperamide", "Albendazole", "Mebendazole", 
+      "Vitamin D3 Drops", "Multivitamin Drops", "Amoxicillin Drops", "Paracetamol Suspension", 
+      "Ibuprofen Suspension", "Ondansetron Drops", "Glycerin Suppository", "Normal Saline Nasal Spray", "Dextromethorphan Syrup"
+    ],
+    Oncology: [
+      "Ondansetron", "Dexamethasone", "Aprepitant", "Metoclopramide", "Filgrastim", "Erythropoietin", 
+      "Morphine", "Fentanyl", "Tramadol", "Paracetamol", "Methotrexate", "Leucovorin", "Tamoxifen", 
+      "Letrozole", "Imatinib", "Capecitabine", "Paclitaxel", "Docetaxel", "Doxorubicin", "Cisplatin", 
+      "Carboplatin", "Oxaliplatin", "5-Fluorouracil", "Cyclophosphamide", "Vincristine", "Vinblastine", 
+      "Etoposide", "Gemcitabine", "Irinotecan", "Pemetrexed", "Anastrozole", "Exemestane", 
+      "Bicalutamide", "Flutamide", "Leuprolide", "Goserelin", "Rituximab", "Trastuzumab", 
+      "Bevacizumab", "Pembrolizumab", "Nivolumab", "Pegfilgrastim", "Loperamide", "Prochlorperazine"
+    ],
+    Orthopedics: [
+      "Ibuprofen", "Diclofenac", "Naproxen", "Celecoxib", "Paracetamol", "Tramadol", "Morphine", 
+      "Calcium + Vitamin D3", "Alendronate", "Zoledronic Acid", "Methocarbamol", "Baclofen", 
+      "Colchicine", "Allopurinol", "Methotrexate", "Sulfasalazine", "Hydroxychloroquine", "Eterocoxib", 
+      "Meloxicam", "Indomethacin", "Ketorolac", "Cyclobenzaprine", "Tizanidine", "Carisoprodol", 
+      "Methylprednisolone", "Triamcinolone Injection", "Glucosamine", "Chondroitin", "Calcitriol", 
+      "Risedronate", "Ibandronate", "Teriparatide", "Denosumab", "Gabapentin", "Pregabalin", 
+      "Leflunomide", "Etanercept", "Adalimumab"
+    ],
+    General: [
+      "Amoxicillin", "Azithromycin", "Ciprofloxacin", "Metronidazole", "Paracetamol", "Ibuprofen", 
+      "Omeprazole", "Pantoprazole", "Cetirizine", "Loratadine", "Salbutamol", "Prednisolone", 
+      "Metformin", "Atorvastatin", "Amlodipine", "Losartan", "Metoprolol", "ORS", "Zinc", 
+      "Vitamin C", "Vitamin D3", "Cephalexin", "Doxycycline", "Amoxicillin-Clavulanate", 
+      "Clindamycin", "Levofloxacin", "Ranitidine", "Famotidine", "Esomeprazole", "Rabeprazole", 
+      "Domperidone", "Loperamide", "Bismuth Subsalicylate", "Fexofenadine", "Montelukast", 
+      "Fluticasone Nasal Spray", "Hydrocortisone Cream", "Clotrimazole Cream", "Mupirocin Ointment", 
+      "Silver Sulfadiazine", "Multivitamin", "B-Complex", "Calcium", "Iron"
+    ],
+    Gynecology: [
+      "Folic Acid", "Iron Supplement", "Progesterone", "Estradiol", "Mefenamic Acid", "Tranexamic Acid", 
+      "Fluconazole", "Metronidazole", "Clotrimazole", "Utrogestan", "Oxytocin", "Misoprostol", 
+      "Dydrogesterone", "Letrozole", "Clomiphene", "Medroxyprogesterone", "Ethinyl Estradiol-Levonorgestrel", 
+      "Norethindrone", "Norgestimate", "Desogestrel", "Levonorgestrel (Emergency Contraceptive)", 
+      "Terconazole", "Miconazole Vaginal Cream", "Clindamycin Vaginal Cream", "Doxylamine-Pyridoxine (Diclegis)", 
+      "Metoclopramide", "Ondansetron", "Calcium Carbonate", "Prenatal Vitamin", "Methylergonovine", 
+      "Dinoprostone", "Magnesium Sulfate", "Nifedipine", "Terbutaline", "Betamethasone", "Cabergoline", "Bromocriptine"
+    ],
+    Pulmonology: [
+      "Salbutamol Inhaler", "Ipratropium Inhaler", "Fluticasone Inhaler", "Budesonide Inhaler", 
+      "Montelukast", "Prednisolone", "Doxycycline", "Azithromycin", "Amoxicillin-Clavulanate", 
+      "Acetylcysteine", "Tiotropium", "Salmeterol", "Theophylline", "Albuterol Nebulizer", 
+      "Levosalbutamol Inhaler", "Formoterol-Budesonide Inhaler", "Salmeterol-Fluticasone Inhaler", 
+      "Umeclidinium-Vilanterol", "Glycopyrrolate Inhaler", "Aminophylline", "Methylprednisolone", 
+      "Prednisone", "Cefuroxime", "Levofloxacin", "Moxifloxacin", "Pirfenidone", "Nintedanib", 
+      "Codeine Syrup", "Dextromethorphan Syrup", "Guafenesin Syrup"
+    ],
+    Gastroenterology: [
+      "Omeprazole", "Pantoprazole", "Esomeprazole", "Rabeprazole", "Domperidone", "Metoclopramide", 
+      "Ondansetron", "Metronidazole", "Clarithromycin", "Amoxicillin", "Ursodeoxycholic Acid", 
+      "Rifaximin", "Lactulose", "Mesalazine", "Azathioprine", "Lansoprazole", "Famotidine", 
+      "Ranitidine", "Dicyclomine", "Hyoscyamine", "Mebeverine", "Loperamide", "Diphenoxylate-Atropine", 
+      "Psyllium Husk", "Polyethylene Glycol (PEG)", "Bisacodyl", "Senna", "Sucralfate", 
+      "Bismuth Subsalicylate", "Mesalamine", "Sulfasalazine", "Budesonide (EC)", "Infliximab", 
+      "Adalimumab", "Pancreatin", "Spironolactone", "Propranolol"
+    ],
+    Endocrinology: [
+      "Metformin", "Glipizide", "Glibenclamide", "Sitagliptin", "Empagliflozin", "Insulin Glargine", 
+      "Insulin Regular", "Levothyroxine", "Methimazole", "Propylthiouracil", "Hydrocortisone", 
+      "Desmopressin", "Vitamin D3", "Calcium Carbonate", "Alendronate", "Glimepiride", "Pioglitazone", 
+      "Dapagliflozin", "Canagliflozin", "Liraglutide", "Semaglutide (Ozempic)", "Dulaglutide", 
+      "Insulin Lispro", "Insulin Aspart", "Insulin NPH", "Liothyronine (T3)", "Fludrocortisone", 
+      "Dexamethasone", "Prednisone", "Spironolactone", "Bromocriptine", "Cabergoline", "Octreotide", 
+      "Raloxifene", "Teriparatide", "Denosumab"
+    ],
+    Nephrology: [
+      "Furosemide", "Spironolactone", "Amlodipine", "Lisinopril", "Losartan", "Erythropoietin", 
+      "Sodium Bicarbonate", "Calcium Carbonate", "Sevelamer", "Calcitriol", "Darbepoetin", 
+      "Tacrolimus", "Mycophenolate", "Prednisolone", "Torsemide", "Bumetanide", "Metolazone", 
+      "Hydralazine", "Minoxidil", "Clonidine", "Carvedilol", "Valsartan", "Sacubitril-Valsartan", 
+      "Doxazosin", "Pravastatin", "Atorvastatin", "Ferrous Sulfate", "Iron Sucrose Injection", 
+      "Calcium Acetate", "Lanthanum Carbonate", "Velphoro", "Cyclosporine", "Azathioprine", "Rituximab"
+    ],
+    Dermatology: [
+      "Cetirizine", "Loratadine", "Hydrocortisone Cream", "Betamethasone Cream", "Clotrimazole Cream", 
+      "Mupirocin Ointment", "Tretinoin Cream", "Acyclovir", "Fluconazole", "Doxycycline", 
+      "Isotretinoin", "Permethrin", "Calamine Lotion", "Desonide Cream", "Clobetasol Propionate Cream", 
+      "Triamcinolone Cream", "Tacrolimus Ointment", "Pimecrolimus Cream", "Ketoconazole Shampoo", 
+      "Terbinafine Cream", "Erythromycin Gel", "Clindamycin Gel", "Benzoyl Peroxide", "Adapalene Gel", 
+      "Salicylic Acid Ointment", "Minoxidil Topical", "Valacyclovir", "Ivermectin Cream", 
+      "Tacrolimus Topical", "Methotrexate", "Acitretin", "Cyclosporine"
+    ],
+    Psychiatry: [
+      "Sertraline", "Escitalopram", "Fluoxetine", "Amitriptyline", "Duloxetine", "Venlafaxine", 
+      "Lithium", "Valproate", "Olanzapine", "Risperidone", "Quetiapine", "Clonazepam", "Lorazepam", 
+      "Zolpidem", "Methylphenidate", "Aripiprazole", "Citalopram", "Paroxetine", "Fluvoxamine", 
+      "Mirtazapine", "Bupropion", "Trazodone", "Haloperidol", "Fluphenazine", "Ziprasidone", 
+      "Lurasidone", "Cariprazine", "Clozapine", "Lamotrigine", "Carbamazepine", "Diazepam", 
+      "Alprazolam", "Temazepam", "Buspirone", "Hydroxyzine", "Atomoxetine", "Lisdexamfetamine", "Guanfacine"
+    ],
+    Ophthalmology: [
+      "Timolol Eye Drops", "Latanoprost Eye Drops", "Tobramycin Eye Drops", "Dexamethasone Eye Drops", 
+      "Ciprofloxacin Eye Drops", "Artificial Tears", "Ketorolac Eye Drops", "Cyclopentolate Eye Drops", 
+      "Prednisolone Eye Drops", "Brimonidine Eye Drops", "Dorzolamide Eye Drops", "Bimatoprost Eye Drops", 
+      "Travoprost Eye Drops", "Pilocarpine Eye Drops", "Moxifloxacin Eye Drops", "Gatifloxacin Eye Drops", 
+      "Ofloxacin Eye Drops", "Erythromycin Eye Ointment", "Gentamicin Eye Drops", "Olopatadine Eye Drops", 
+      "Ketotifen Eye Drops", "Cyclosporine Eye Drops (Restasis)", "Flurbiprofen Eye Drops", 
+      "Diclofenac Eye Drops", "Atropine Eye Drops", "Phenylephrine Eye Drops"
+    ],
+    ENT: [
+      "Amoxicillin", "Azithromycin", "Cetirizine", "Oxymetazoline Nasal Spray", "Budesonide Nasal Spray", 
+      "Fluticasone Nasal Spray", "Ciprofloxacin Ear Drops", "Betahistine", "Mometasone", "Prednisolone", 
+      "Amoxicillin-Clavulanate", "Cefuroxime", "Clindamycin", "Fexofenadine", "Levocetirizine", 
+      "Montelukast", "Triamcinolone Nasal Spray", "Azelastine Nasal Spray", "Saline Nasal Spray", 
+      "Ofloxacin Ear Drops", "Neomycin-Polymyxin-HC Ear Drops", "Clotrimazole Ear Drops", 
+      "Carbamide Peroxide (Earwax Softener)", "Lidocaine Lozenges", "Chlorhexidine Mouthwash", 
+      "Nystatin Oral Suspension", "Meclizine", "Dimenhydrinate"
+    ],
+    Urology: [
+      "Tamsulosin", "Finasteride", "Sildenafil", "Tadalafil", "Oxybutynin", "Solifenacin", 
+      "Nitrofurantoin", "Ciprofloxacin", "Trimethoprim", "Phenazopyridine", "Dutasteride", 
+      "Silodosin", "Alfuzosin", "Doxazosin", "Terazosin", "Betechole (Bethanechol)", "Mirabegron", 
+      "Tolterodine", "Darifenacin", "Trospium", "Trimethoprim-Sulfamethoxazole", "Fosfomycin", 
+      "Levofloxacin", "Cephalexin", "Alopurinol", "Potassium Citrate", "Leuprolide", "Goserelin", 
+      "Degarelix", "Abiraterone", "Enzalutamide"
+    ],
   };
 
   function getDeptTests(): string[] {
@@ -1013,9 +1556,13 @@ export default function Dashboard() {
     return key ? DEPT_TESTS[key] : DEPT_TESTS["General"];
   }
   function getDeptMedicines(): string[] {
-    const dept = user?.department?.trim() || "";
-    const key = Object.keys(DEPT_MEDICINES).find(k => dept.toLowerCase().includes(k.toLowerCase()));
-    return key ? DEPT_MEDICINES[key] : DEPT_MEDICINES["General"];
+    const dept = (user?.department ?? "").trim().toLowerCase();
+    const match = DEPT_ALIASES.find(({ keywords }) =>
+      keywords.some(kw => dept.includes(kw))
+    );
+    const resolvedKey = match ? match.key : "General";
+    const medicines = DEPT_MEDICINES[resolvedKey] ?? DEPT_MEDICINES["General"];
+    return [...medicines].sort((a, b) => a.localeCompare(b));
   }
   function toggleFavMedicine(name: string) {
     const updated = favMedicines.includes(name)
@@ -1027,13 +1574,37 @@ export default function Dashboard() {
 
   const activeQueue: Patient[] = patients.filter((p) => p.status !== "completed");
 
-  const filteredCompletedPatients: Patient[] = patients.filter((p) => {
-    if (p.status !== "completed") return false;
+  const filteredCompletedPatients: (Patient & { visitCode?: string })[] = [];
+  const seenCompleted = new Set<string>();
+
+  patients.forEach((p) => {
+    if (p.status !== "completed") return;
     const matchesSearch = !searchQuery ||
       p.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
       p.id.toLowerCase().includes(searchQuery.toLowerCase());
-    if (statusFilter === "revisit") return matchesSearch && !!p.followUp;
-    return matchesSearch;
+    if (statusFilter === "revisit" && !p.followUp) return;
+
+    if (matchesSearch) {
+      const key = p.phone || p.name;
+      if (!seenCompleted.has(key)) {
+        seenCompleted.add(key);
+
+        const deptChar = (p.department || "G").trim().charAt(0).toUpperCase();
+        let doc = (p.doctor || "D").trim();
+        if (doc.toLowerCase().startsWith("dr.")) {
+          doc = doc.substring(3).trim();
+        }
+        const docChar = doc.charAt(0).toUpperCase();
+        const count = p.visitCount || (p.pastVisits?.length || 0) + 1;
+        const seq = String(count).padStart(3, "0");
+        const visitCode = `${deptChar}${docChar}${seq}`;
+
+        filteredCompletedPatients.push({
+          ...p,
+          visitCode,
+        });
+      }
+    }
   });
 
   const today = new Date();
@@ -1142,28 +1713,6 @@ export default function Dashboard() {
                 </div>
               </div>
 
-              {/* Completed patients list */}
-              <div className="mb-5">
-                <p className="text-[10px] font-extrabold uppercase tracking-widest text-zinc-400 dark:text-zinc-500 mb-2 px-1">
-                  Patients · {patients.filter(p => p.status === "completed").length} done
-                </p>
-                <div className="space-y-1.5 max-h-40 overflow-y-auto pr-0.5">
-                  {patients.filter(p => p.status === "completed").length === 0 ? (
-                    <p className="text-xs text-zinc-400 dark:text-zinc-500 italic px-1">No completed patients yet</p>
-                  ) : patients.filter(p => p.status === "completed").map(p => (
-                    <button key={p.id}
-                      onClick={() => { setActivePatient(p); setIsExamining(true); setActiveTab("overview"); }}
-                      className="w-full text-left px-3 py-2.5 rounded-xl text-xs transition-all hover:bg-emerald-50 dark:hover:bg-emerald-950/20 text-zinc-600 dark:text-zinc-400 font-medium"
-                    >
-                      <div className="flex items-center justify-between gap-1">
-                        <span className="truncate">{p.name}</span>
-                        <span className="shrink-0 text-[9px] font-black uppercase px-1.5 py-0.5 rounded-full bg-emerald-100 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-300">Done</span>
-                      </div>
-                      <p className="text-zinc-400 dark:text-zinc-500 text-[10px] mt-0.5">{p.age} y/o · {p.time}</p>
-                    </button>
-                  ))}
-                </div>
-              </div>
             </>
           )}
 
@@ -1177,7 +1726,7 @@ export default function Dashboard() {
               },
               {
                 id: "patients" as const,
-                label: "Patients",
+                label: "Completed Patients",
                 icon: "M12 4.354a4 4 0 110 5.292M15 21H3v-1a6 6 0 0112 0v1zm0 0h6v-1a6 6 0 00-9-5.197M13 7a4 4 0 11-8 0 4 4 0 018 0z",
                 badge: patients.filter(p => p.status === "completed").length,
               },
@@ -1289,7 +1838,7 @@ export default function Dashboard() {
                                   <div className="flex items-center gap-2 flex-wrap">
                                     <h4 className="font-extrabold text-base text-zinc-800 dark:text-zinc-200">{patient.name}</h4>
                                     <span className="text-xs px-2 py-0.5 rounded bg-slate-100 dark:bg-zinc-800 font-bold text-zinc-500 dark:text-zinc-400">
-                                      {patient.id}
+                                      {patient.patientId || patient.id}
                                     </span>
                                     {patient.visitType && patient.visitType !== "new" && (
                                       <span className={`text-[10px] px-2 py-0.5 rounded-full font-black ${
@@ -1308,7 +1857,7 @@ export default function Dashboard() {
                                     )}
                                   </div>
                                   <p className="text-xs font-semibold text-zinc-400 dark:text-zinc-500 mt-1">
-                                    {patient.age} y/o • {patient.gender} • Checked in at {patient.time}
+                                      {patient.age ? `${patient.age} y/o` : '—'} • {patient.gender || 'unknown'} • Checked in at {patient.time}
                                   </p>
                                   <p className="text-sm font-medium text-zinc-500 dark:text-zinc-400 mt-1.5 line-clamp-1">
                                     <span className="text-zinc-400 dark:text-zinc-600 font-bold uppercase text-[10px] tracking-wider mr-1">Reason:</span>
@@ -1411,7 +1960,7 @@ export default function Dashboard() {
                     <div>
                       <div className="flex items-center gap-2 flex-wrap">
                         <h3 className="text-xl font-black text-zinc-800 dark:text-zinc-100">{activePatient.name}</h3>
-                        <span className="text-[10px] px-2 py-0.5 rounded-full font-black bg-zinc-100 dark:bg-zinc-800 text-zinc-500">{activePatient.id}</span>
+                        <span className="text-[10px] px-2 py-0.5 rounded-full font-black bg-zinc-100 dark:bg-zinc-800 text-zinc-500">{activePatient.patientId || activePatient.id}</span>
                         <span className={`text-[10px] px-2 py-0.5 rounded-full font-black ${
                           activePatient.status === "completed" ? "bg-emerald-100 text-emerald-700" :
                           activePatient.status === "treating"  ? "bg-indigo-100 text-indigo-700" :
@@ -1551,7 +2100,7 @@ export default function Dashboard() {
                           </div>
 
                           <div className="p-5 space-y-4">
-                            {(v.bloodPressure || (v.heartRate && v.heartRate > 0) || (v.temperature && v.temperature > 0)) && (
+                            {!!(v.bloodPressure || (v.heartRate && v.heartRate > 0) || (v.temperature && v.temperature > 0)) && (
                               <div className="flex flex-wrap gap-2">
                                 {v.bloodPressure && (
                                   <div className="flex items-center gap-1.5 bg-rose-50 dark:bg-rose-950/20 border border-rose-100 dark:border-rose-900/30 rounded-xl px-3 py-2">
@@ -1635,29 +2184,48 @@ export default function Dashboard() {
                   {/* NOTES TAB */}
                   {ehrTab === "notes" && (
                     <div className="space-y-8">
-                      {/* Vitals Row */}
+                      {/* Vitals Row — dynamically rendered per department */}
                       <section>
-                        <h4 className="text-[10px] font-extrabold uppercase tracking-widest text-zinc-400 dark:text-zinc-500 mb-4">Diagnostic Vitals</h4>
+                        <div className="flex items-center justify-between mb-4">
+                          <h4 className="text-[10px] font-extrabold uppercase tracking-widest text-zinc-400 dark:text-zinc-500">Diagnostic Vitals</h4>
+                          {user?.department && (
+                            <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-zinc-100 dark:bg-zinc-800 text-zinc-500 dark:text-zinc-400">
+                              {user.department} Profile
+                            </span>
+                          )}
+                        </div>
                         <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-6 gap-4">
-                          <div className="p-4 bg-sky-50/60 dark:bg-sky-950/20 border border-sky-100 dark:border-sky-900/40 rounded-2xl">
-                            <span className="text-[10px] font-bold text-sky-500 block mb-1">Blood Pressure</span>
-                            <input type="text" value={editBP} onChange={(e) => setEditBP(e.target.value)} placeholder="120/80"
-                              className="w-full bg-transparent border-0 p-0 text-base font-black focus:outline-none text-zinc-800 dark:text-zinc-100" />
-                            <span className="text-[10px] text-zinc-400">mmHg</span>
-                          </div>
-                          <div className="p-4 bg-rose-50/60 dark:bg-rose-950/20 border border-rose-100 dark:border-rose-900/40 rounded-2xl">
-                            <span className="text-[10px] font-bold text-rose-500 block mb-1">Heart Rate</span>
-                            <input type="number" value={editHR} onChange={(e) => setEditHR(Number(e.target.value))} placeholder="72"
-                              className="w-full bg-transparent border-0 p-0 text-base font-black focus:outline-none text-zinc-800 dark:text-zinc-100" />
-                            <span className="text-[10px] text-zinc-400">bpm</span>
-                          </div>
-                          <div className="p-4 bg-amber-50/60 dark:bg-amber-950/20 border border-amber-100 dark:border-amber-900/40 rounded-2xl">
-                            <span className="text-[10px] font-bold text-amber-500 block mb-1">Temperature</span>
-                            <input type="number" step="0.1" value={editTemp} onChange={(e) => setEditTemp(Number(e.target.value))} placeholder="98.6"
-                              className="w-full bg-transparent border-0 p-0 text-base font-black focus:outline-none text-zinc-800 dark:text-zinc-100" />
-                            {/* FIX: was rendering ?F — now correctly shows °F */}
-                            <span className="text-[10px] text-zinc-400">°F</span>
-                          </div>
+                          {/* Department-specific vital inputs */}
+                          {getDeptVitals().map((vf) => {
+                            const colorParts = vf.color.split(" ");
+                            const labelColor = colorParts.filter(c => c.startsWith("text-")).join(" ");
+                            const bgBorder   = colorParts.filter(c => !c.startsWith("text-")).join(" ");
+                            const status     = getVitalStatus(vf.key);
+                            // Override card border when out of range
+                            const outlineCls = status === "high"
+                              ? "ring-1 ring-red-300 dark:ring-red-700"
+                              : status === "low"
+                              ? "ring-1 ring-blue-300 dark:ring-blue-700"
+                              : "";
+                            return (
+                              <div key={vf.key} className={`p-4 border rounded-2xl transition-all ${bgBorder} ${outlineCls}`}>
+                                <div className="flex items-center justify-between mb-1">
+                                  <span className={`text-[10px] font-bold ${labelColor}`}>{vf.label}</span>
+                                  <VitalIndicator status={status} />
+                                </div>
+                                <input
+                                  type={vf.inputType}
+                                  step={vf.step}
+                                  value={getVitalValue(vf.key)}
+                                  onChange={(e) => setVitalValue(vf.key, e.target.value)}
+                                  placeholder={vf.placeholder}
+                                  className="w-full bg-transparent border-0 p-0 text-base font-black focus:outline-none text-zinc-800 dark:text-zinc-100"
+                                />
+                                <span className="text-[10px] text-zinc-400">{vf.unit}</span>
+                              </div>
+                            );
+                          })}
+                          {/* Static demographic cards */}
                           <div className="p-4 bg-slate-50 dark:bg-zinc-800/40 border border-zinc-100 dark:border-zinc-800 rounded-2xl">
                             <span className="text-[10px] font-bold text-zinc-400 block mb-1">Age</span>
                             <p className="text-base font-black text-zinc-800 dark:text-zinc-100">{activePatient.age}</p>
@@ -1735,10 +2303,9 @@ export default function Dashboard() {
                                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
                                 </svg>
                                 {testSearchOpen && (
-                                  <div className="absolute top-full left-0 right-0 z-20 mt-1 bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 rounded-2xl shadow-xl max-h-56 overflow-y-auto">
+                                  <div className="absolute top-full left-0 right-0 z-20 mt-1 bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 rounded-2xl shadow-xl max-h-72 overflow-y-auto">
                                     {getDeptTests()
                                       .filter(t => t.toLowerCase().includes(testSearchQuery.toLowerCase()) && !editTests.includes(t))
-                                      .slice(0, 14)
                                       .map((t) => (
                                         <button key={t} type="button"
                                           onMouseDown={() => {
@@ -1843,7 +2410,12 @@ export default function Dashboard() {
                                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
                               </svg>
                               {medSearchOpen && (
-                                <div className="absolute top-full left-0 right-0 z-20 mt-1 bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 rounded-xl shadow-xl max-h-52 overflow-y-auto">
+                                <div className="absolute top-full left-0 right-0 z-20 mt-1 bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 rounded-xl shadow-xl max-h-72 overflow-y-auto">
+                                  {favMedicines.filter(f => f.toLowerCase().includes(medSearchQuery.toLowerCase())).length > 0 && (
+                                    <div className="px-3 py-1 text-[10px] font-extrabold uppercase tracking-wider text-amber-500 border-b border-zinc-100 dark:border-zinc-800 bg-amber-50/50 dark:bg-amber-950/10">
+                                      ★ Favourites
+                                    </div>
+                                  )}
                                   {favMedicines.filter(f => f.toLowerCase().includes(medSearchQuery.toLowerCase())).map(fav => (
                                     <button key={`fav-${fav}`} type="button"
                                       onMouseDown={() => { setNewMedName(fav); setMedSearchQuery(fav); setMedSearchOpen(false); }}
@@ -1852,9 +2424,13 @@ export default function Dashboard() {
                                       <span className="text-amber-400">★</span>{fav}
                                     </button>
                                   ))}
+                                  {getDeptMedicines().filter(m => m.toLowerCase().includes(medSearchQuery.toLowerCase()) && !favMedicines.includes(m)).length > 0 && (
+                                    <div className="px-3 py-1 text-[10px] font-extrabold uppercase tracking-wider text-zinc-400 border-b border-zinc-100 dark:border-zinc-800 bg-slate-50/70 dark:bg-zinc-800/30">
+                                      {user?.department ?? 'Department'} Formulary
+                                    </div>
+                                  )}
                                   {getDeptMedicines()
                                     .filter(m => m.toLowerCase().includes(medSearchQuery.toLowerCase()) && !favMedicines.includes(m))
-                                    .slice(0, 12)
                                     .map(m => (
                                       <button key={m} type="button"
                                         onMouseDown={() => { setNewMedName(m); setMedSearchQuery(m); setMedSearchOpen(false); }}
@@ -1878,10 +2454,29 @@ export default function Dashboard() {
                               )}
                             </div>
 
-                            <div className="grid grid-cols-3 gap-2">
-                              <input type="text" value={newMedDosage} onChange={(e) => setNewMedDosage(e.target.value)}
-                                placeholder="Dosage (500mg)"
-                                className="px-3 py-2.5 text-xs bg-white dark:bg-zinc-900 border border-zinc-200/80 dark:border-zinc-800 rounded-xl focus:outline-none focus:border-sky-500" />
+                            <div className="flex gap-2 flex-wrap items-center">
+                              <select
+                                value={newMedDosage}
+                                onChange={(e) => setNewMedDosage(e.target.value)}
+                                className="px-3 py-2.5 text-xs bg-white dark:bg-zinc-900 border border-zinc-200/80 dark:border-zinc-800 rounded-xl focus:outline-none focus:border-sky-500"
+                                required
+                              >
+                                <option value="" disabled>Select dosage</option>
+                                {dosageOptions.map((opt) => (
+                                  <option key={opt} value={opt}>{opt}</option>
+                                ))}
+                                <option value="custom">Custom...</option>
+                              </select>
+                              {newMedDosage === "custom" && (
+                                <input
+                                  type="text"
+                                  value={customDosage}
+                                  onChange={(e) => setCustomDosage(e.target.value)}
+                                  placeholder="Enter dosage"
+                                  className="px-3 py-2.5 text-xs bg-white dark:bg-zinc-900 border border-zinc-200/80 dark:border-zinc-800 rounded-xl focus:outline-none focus:border-sky-500"
+                                  required
+                                />
+                              )}
                               <input type="text" value={newMedFreq} onChange={(e) => setNewMedFreq(e.target.value)}
                                 placeholder="Frequency"
                                 className="px-3 py-2.5 text-xs bg-white dark:bg-zinc-900 border border-zinc-200/80 dark:border-zinc-800 rounded-xl focus:outline-none focus:border-sky-500" />
@@ -1971,9 +2566,9 @@ export default function Dashboard() {
               <div className="space-y-6">
                 <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
                   <div>
-                    <h2 className="text-2xl font-extrabold tracking-tight text-zinc-800 dark:text-zinc-100">Examined Patients</h2>
+                    <h2 className="text-2xl font-extrabold tracking-tight text-zinc-800 dark:text-zinc-100">Completed Patients</h2>
                     <p className="text-sm text-zinc-400 dark:text-zinc-500 mt-1 font-medium">
-                      {patients.filter(p => p.status === "completed").length} consultation{patients.filter(p => p.status === "completed").length !== 1 ? "s" : ""} completed today
+                      {filteredCompletedPatients.length} patient{filteredCompletedPatients.length !== 1 ? "s" : ""} completed today
                     </p>
                   </div>
                   <div className="flex gap-1.5 p-1 bg-slate-100 dark:bg-zinc-800/80 rounded-xl shrink-0">
@@ -2030,17 +2625,16 @@ export default function Dashboard() {
                         <thead>
                           <tr className="bg-zinc-50 dark:bg-zinc-800/50 border-b border-zinc-100 dark:border-zinc-800">
                             <th className="px-5 py-3.5 text-left text-[10px] font-extrabold uppercase tracking-wider text-zinc-400">Patient</th>
-                            <th className="px-5 py-3.5 text-left text-[10px] font-extrabold uppercase tracking-wider text-zinc-400">Vitals</th>
-                            <th className="px-5 py-3.5 text-left text-[10px] font-extrabold uppercase tracking-wider text-zinc-400">Diagnosis</th>
-                            <th className="px-5 py-3.5 text-left text-[10px] font-extrabold uppercase tracking-wider text-zinc-400">Medications</th>
-                            <th className="px-5 py-3.5 text-left text-[10px] font-extrabold uppercase tracking-wider text-zinc-400">Follow-up</th>
+                            <th className="px-5 py-3.5 text-left text-[10px] font-extrabold uppercase tracking-wider text-zinc-400">Doctor</th>
+                            <th className="px-5 py-3.5 text-left text-[10px] font-extrabold uppercase tracking-wider text-zinc-400">Department</th>
+                            <th className="px-5 py-3.5 text-left text-[10px] font-extrabold uppercase tracking-wider text-zinc-400">Visit Count</th>
                             <th className="px-5 py-3.5 text-left text-[10px] font-extrabold uppercase tracking-wider text-zinc-400">Time</th>
                             <th className="px-5 py-3.5"></th>
                           </tr>
                         </thead>
                         <tbody className="divide-y divide-zinc-50 dark:divide-zinc-800">
                           {filteredCompletedPatients.map(p => (
-                            <tr key={p.id} className="hover:bg-emerald-50/30 dark:hover:bg-emerald-950/10 transition-colors">
+                            <tr key={p.id} className="hover:bg-slate-50 dark:hover:bg-zinc-800/40 transition-colors">
                               <td className="px-5 py-4">
                                 <div className="flex items-center gap-3">
                                   <div className="w-9 h-9 rounded-xl bg-gradient-to-br from-emerald-50 to-emerald-100 dark:from-zinc-800 dark:to-zinc-700 flex items-center justify-center font-extrabold text-emerald-600 dark:text-emerald-400 text-xs shrink-0">
@@ -2049,36 +2643,19 @@ export default function Dashboard() {
                                   <div>
                                     <p className="font-bold text-zinc-800 dark:text-zinc-200">{p.name}</p>
                                     <p className="text-xs text-zinc-400 mt-0.5">{p.age} y/o · {p.gender}</p>
-                                    {p.reason && <p className="text-[11px] text-zinc-400 mt-0.5 truncate max-w-[140px]">{p.reason}</p>}
                                   </div>
                                 </div>
                               </td>
-                              <td className="px-5 py-4">
-                                <div className="text-[11px] text-zinc-500 space-y-0.5">
-                                  {p.vitals.bloodPressure && <p>BP: {p.vitals.bloodPressure}</p>}
-                                  {p.vitals.heartRate > 0 && <p>HR: {p.vitals.heartRate} bpm</p>}
-                                  {p.vitals.temperature > 0 && <p>T: {p.vitals.temperature}°F</p>}
-                                  {!p.vitals.bloodPressure && !p.vitals.heartRate && !p.vitals.temperature && <span className="text-zinc-300">—</span>}
-                                </div>
-                              </td>
-                              <td className="px-5 py-4">
-                                <p className="text-xs text-zinc-700 dark:text-zinc-300 max-w-[160px] truncate">{p.primaryDiagnosis || <span className="text-zinc-300">—</span>}</p>
-                                {p.chiefComplaint && <p className="text-[11px] text-zinc-400 mt-0.5 truncate max-w-[160px]">{p.chiefComplaint}</p>}
-                              </td>
-                              <td className="px-5 py-4">
-                                {p.medications.length > 0 ? (
-                                  <div className="text-[11px] text-zinc-600 dark:text-zinc-400 space-y-0.5">
-                                    {p.medications.slice(0, 2).map((m, i) => (
-                                      <p key={i} className="truncate max-w-[120px]">{m.name} {m.dosage}</p>
-                                    ))}
-                                    {p.medications.length > 2 && <p className="text-zinc-400">+{p.medications.length - 2} more</p>}
-                                  </div>
-                                ) : <span className="text-zinc-300 text-xs">—</span>}
+                              <td className="px-5 py-4 text-xs font-semibold text-zinc-700 dark:text-zinc-300">
+                                {p.doctor || "—"}
                               </td>
                               <td className="px-5 py-4 text-xs text-zinc-500">
-                                {p.followUp
-                                  ? new Date(p.followUp).toLocaleDateString("en-IN", { day: "numeric", month: "short" })
-                                  : <span className="text-zinc-300">—</span>}
+                                {p.department || "—"}
+                              </td>
+                              <td className="px-5 py-4">
+                                <span className="text-xs font-black px-2.5 py-1 rounded bg-sky-50 dark:bg-sky-950/40 text-sky-700 dark:text-sky-300 border border-sky-100 dark:border-sky-800/40">
+                                  {p.visitCode}
+                                </span>
                               </td>
                               <td className="px-5 py-4 text-xs text-zinc-400 whitespace-nowrap">{p.time}</td>
                               <td className="px-5 py-4">
@@ -2191,7 +2768,7 @@ export default function Dashboard() {
                               <div className="min-w-0">
                                 <div className="flex flex-wrap items-center gap-2">
                                   <h4 className="font-extrabold text-base text-zinc-800 dark:text-zinc-200">{patient.name}</h4>
-                                  <span className="text-xs px-2 py-0.5 rounded bg-slate-100 dark:bg-zinc-800 font-bold text-zinc-500">{patient.id}</span>
+                                  <span className="text-xs px-2 py-0.5 rounded bg-slate-100 dark:bg-zinc-800 font-bold text-zinc-500">{patient.patientId || patient.id}</span>
                                   {isToday && (
                                     <span className="text-[10px] font-black uppercase px-2 py-0.5 rounded-full bg-amber-500 text-white animate-pulse">Today</span>
                                   )}

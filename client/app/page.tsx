@@ -85,7 +85,7 @@ export default function Home() {
   const [suPassword, setSuPassword] = useState("");
   const [suEmployeeId, setSuEmployeeId] = useState("");
   const [suClinicId, setSuClinicId] = useState("");
-  const [suRole, setSuRole] = useState<"doctor" | "receptionist" | "">("");
+  const [suRole, setSuRole] = useState<"doctor" | "receptionist" | "clinic_admin" | "">("");
   const [suDepartment, setSuDepartment] = useState("");
   const [suDepartmentFocused, setSuDepartmentFocused] = useState(false);
   const deptInputRef = useRef<HTMLInputElement | null>(null);
@@ -177,6 +177,7 @@ export default function Home() {
       setTimeout(() => {
         if (data.user?.role === "doctor") window.location.href = "/doctor";
         else if (data.user?.role === "receptionist") window.location.href = "/receptionist";
+        else if (data.user?.role === "clinic_admin") window.location.href = "/clinic-admin";
         else window.location.href = "/dashboard";
       }, 1500);
     } catch (error) { setSiMessage("Network error. Please check your connection and try again."); console.error(error); }
@@ -442,11 +443,12 @@ export default function Home() {
                     </label>
                     <label className="block">
                       <span className="text-sm text-zinc-600 dark:text-zinc-300">Role</span>
-                      <select value={suRole} onChange={(e) => setSuRole(e.target.value as "doctor" | "receptionist" | "")} disabled={suLoading}
+                      <select value={suRole} onChange={(e) => setSuRole(e.target.value as "doctor" | "receptionist" | "clinic_admin" | "")} disabled={suLoading}
                         className="mt-2 block w-full rounded-lg border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-slate-800 dark:text-white px-4 py-3 text-base focus:border-blue-500">
                         <option value="">Select role</option>
                         <option value="doctor">Doctor</option>
                         <option value="receptionist">Receptionist</option>
+                        <option value="clinic_admin">Clinic Admin</option>
                       </select>
                       {suErrors.role && <p className="mt-1 text-sm text-red-600">{suErrors.role}</p>}
                     </label>

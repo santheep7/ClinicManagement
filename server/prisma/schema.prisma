@@ -111,3 +111,16 @@ model Payment {
   doctorId    String?
   doctor      User?    @relation("DoctorPayments", fields: [doctorId], references: [id])
 }
+
+/// Stores the admin-configured vital fields for each department in a clinic.
+/// vitals is an array of field keys, e.g. ["bloodPressure","heartRate","spO2"].
+model DepartmentVitalsConfig {
+  id         String   @id @default(uuid())
+  clinicId   String
+  department String
+  vitals     String[]
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  @@unique([clinicId, department])
+}

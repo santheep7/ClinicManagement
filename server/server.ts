@@ -6,6 +6,7 @@ import patientRoutes from "./Routes/patientRoutes";
 import clinicRoutes from "./Routes/clinicRoutes";
 import paymentRoutes from "./Routes/paymentRoutes";
 import appointmentRoutes from "./Routes/appointmentRoutes";
+import vitalConfigRoutes from "./Routes/vitalConfigRoutes";
 dotenv.config();
 
 const PORT = Number(process.env.PORT || 4000);
@@ -31,6 +32,7 @@ app.use("/api/patients", patientRoutes);
 app.use("/api/clinics", clinicRoutes);
 app.use("/api/payments", paymentRoutes);
 app.use("/api/appointments", appointmentRoutes);
+app.use("/api/vital-configs", vitalConfigRoutes);
 
 // Error handling middleware (Fixed explicit type imports)
 app.use((err: any, req: Request, res: Response, next: NextFunction) => {
