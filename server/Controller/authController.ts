@@ -107,8 +107,11 @@ export async function register(req: Request, res: Response) {
 export async function login(req: Request, res: Response) {
   try {
     const { employeeId, password } = req.body;
+    const remoteAddr = (req.headers['x-forwarded-for'] || req.socket.remoteAddress || '').toString();
+    console.log(`[login] attempt from ${remoteAddr} employeeId='${String(employeeId ?? '')}'`);
 
-    if (!employeeId || typeof employeeId !== "string" || employeeId.trim().length === 0) {
+    const empTrim = typeof employeeId === "string" ? employeeId.trim() : "";
+    if (!empTrim) {
       return res.status(400).json({ error: "Employee ID is required." });
     }
 
@@ -116,15 +119,18 @@ export async function login(req: Request, res: Response) {
       return res.status(400).json({ error: "Password is required." });
     }
 
-    const user = await prisma.user.findUnique({
-      where: { employeeId: employeeId.trim() },
+    // Use a case-insensitive search to tolerate different casing in the client input
+    const user = await prisma.user.findFirst({
+      where: { employeeId: { equals: empTrim, mode: "insensitive" } },
     });
+    console.log(user ? `[login] user found id=${user.id} employeeId=${user.employeeId}` : `[login] user NOT found for '${empTrim}'`);
 
     if (!user) {
       return res.status(401).json({ error: "Invalid employee ID or password." });
     }
 
     const passwordMatches = await bcrypt.compare(password, user.passwordHash);
+    console.log(`[login] password match: ${passwordMatches ? 'YES' : 'NO'}`);
     if (!passwordMatches) {
       return res.status(401).json({ error: "Invalid employee ID or password." });
     }
@@ -202,8 +208,9 @@ export async function getClinicByEmployeeId(req: Request, res: Response) {
     if (!employeeId || employeeId.trim().length === 0) {
       return res.status(400).json({ error: "Employee ID required." });
     }
-    const user = await prisma.user.findUnique({
-      where: { employeeId: employeeId.trim().toUpperCase() },
+    const emp = employeeId.trim();
+    const user = await prisma.user.findFirst({
+      where: { employeeId: { equals: emp, mode: "insensitive" } },
       select: {
         clinic: {
           select: { id: true, clinicId: true, name: true, address: true, logo: true, brandColor: true, isActive: true },

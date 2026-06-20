@@ -33,6 +33,8 @@ interface QueueItem {
 interface User {
   fullName: string;
   role: string;
+  clinicId?: string;
+  clinicName?: string;
 }
 
 interface DoctorOption {
@@ -153,6 +155,7 @@ function handleUnauthorized(status: number) {
 export default function ReceptionistDashboard() {
   const [mounted, setMounted] = useState(false);
   const [user, setUser] = useState<User | null>(null);
+  const [clinicName, setClinicName] = useState<string>("");
 
   // Active tab: "dashboard" | "register" | "appointments" | "payments"
   const [activeTab, setActiveTab] = useState<"dashboard" | "register" | "appointments" | "payments">("dashboard");
@@ -276,6 +279,25 @@ export default function ReceptionistDashboard() {
       localStorage.removeItem("completedPatients");
     }
   }, []);
+
+  // ── Load clinic name ──
+  useEffect(() => {
+    if (!mounted || !user?.clinicId) return;
+    const token = localStorage.getItem("accessToken");
+    if (!token) return;
+    const fetchClinic = async () => {
+      try {
+        const res = await fetch(`${API_BASE_URL}/api/clinics/${user.clinicId}`, {
+          headers: { Authorization: `Bearer ${token}` },
+        });
+        if (!res.ok) return;
+        const data = await res.json();
+        const cname = data.clinic?.name || data.name || "";
+        if (cname) setClinicName(cname);
+      } catch { /* silent */ }
+    };
+    fetchClinic();
+  }, [mounted, user?.clinicId]);
 
   // ── Load patient queue ──
   useEffect(() => {
@@ -798,6 +820,9 @@ export default function ReceptionistDashboard() {
         <div className="flex items-center justify-between px-4 py-5 border-b border-zinc-100">
           {sidebarOpen && (
             <div className="min-w-0">
+              {clinicName && (
+                <p className="text-[11px] font-extrabold uppercase tracking-widest text-sky-600 truncate mb-0.5">{clinicName}</p>
+              )}
               <p className="text-xs font-extrabold uppercase tracking-widest text-zinc-400">Receptionist</p>
               <p className="text-sm font-black text-zinc-800 truncate">{user.fullName}</p>
             </div>

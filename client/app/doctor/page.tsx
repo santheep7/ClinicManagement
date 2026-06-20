@@ -1,24 +1,26 @@
 "use client";
 
 import { useEffect, useState, useRef } from "react";
-import Image from "next/image";
 
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:4000";
 
 interface Patient {
   id: string;
+  historyLoaded?: boolean;  // add this line
   patientId?: string;
   queueId?: string;
   name: string;
   age: number;
   gender: string;
   phone?: string;
+  address?: string;
   doctor?: string;
   department?: string;
   visitCount?: number;
   time: string;
   status: "pending" | "treating" | "completed";
   visitType?: "new" | "revisit" | "followup";
+  priority?: string;
   reason: string;
   vitals: {
     bloodPressure: string;
@@ -88,6 +90,99 @@ interface QueueItem {
 const DASHBOARD_STORAGE_VERSION = "2";
 const DASHBOARD_STORAGE_VERSION_KEY = "dashboardStorageVersion";
 
+const dosageDefaults = [
+  "5mg", "10mg", "25mg", "50mg", "100mg", "250mg", "500mg", "650mg", "1g",
+  "1 tablet", "2 tablets", "1 capsule", "5ml", "10ml", "15ml",
+  "1 puff", "2 puffs", "1 drop", "2 drops", "Apply thin layer"
+];
+
+const dosageMap: Record<string, string[]> = {
+  Paracetamol: ["500mg", "650mg", "1g", "5ml", "10ml", "15ml"],
+  Ibuprofen: ["200mg", "400mg", "600mg", "800mg"],
+  Aspirin: ["81mg", "150mg", "325mg", "500mg"],
+  Clopidogrel: ["75mg", "150mg", "300mg"],
+  Atorvastatin: ["5mg", "10mg", "20mg", "40mg", "80mg"],
+  Rosuvastatin: ["5mg", "10mg", "20mg", "40mg", "80mg"],
+  Metoprolol: ["25mg", "50mg", "100mg", "200mg"],
+  Atenolol: ["25mg", "50mg", "100mg"],
+  Amlodipine: ["2.5mg", "5mg", "10mg"],
+  Losartan: ["25mg", "50mg", "100mg"],
+  Lisinopril: ["2.5mg", "5mg", "10mg", "20mg"],
+  Ramipril: ["2.5mg", "5mg", "10mg", "20mg"],
+  Furosemide: ["20mg", "40mg", "80mg"],
+  Spironolactone: ["25mg", "50mg", "100mg"],
+  Amoxicillin: ["250mg", "500mg", "875mg"],
+  Azithromycin: ["250mg", "500mg"],
+  Ciprofloxacin: ["250mg", "500mg", "750mg"],
+  Doxycycline: ["100mg"],
+  Metronidazole: ["250mg", "400mg", "500mg"],
+  Omeprazole: ["20mg", "40mg"],
+  Pantoprazole: ["20mg", "40mg"],
+  Esomeprazole: ["20mg", "40mg"],
+  Rabeprazole: ["20mg", "40mg"],
+  Domperidone: ["10mg", "30mg"],
+  Ondansetron: ["4mg", "8mg"],
+  Cetirizine: ["5mg", "10mg"],
+  Loratadine: ["10mg"],
+  Prednisolone: ["5mg", "10mg", "20mg", "40mg"],
+  Dexamethasone: ["0.5mg", "1mg", "2mg", "4mg", "8mg"],
+  Metformin: ["500mg", "850mg", "1000mg"],
+  Gabapentin: ["100mg", "300mg", "400mg", "600mg", "800mg"],
+  Pregabalin: ["50mg", "75mg", "150mg", "300mg"],
+  Levetiracetam: ["250mg", "500mg", "750mg", "1000mg"],
+  Clonazepam: ["0.25mg", "0.5mg", "1mg", "2mg"],
+  Alprazolam: ["0.25mg", "0.5mg", "1mg", "2mg"],
+};
+
+const queueItemToPatient = (item: QueueItem, existingPatients: Patient[]): Patient => {
+  const prevVisits = existingPatients
+    .filter(p => p.name.toLowerCase() === item.name.toLowerCase() && p.status === "completed" && p.id !== `PT-${item.id.replace(/\D/g, "")}`)
+    .slice(0, 5)
+    .map(p => ({
+      date: p.time,
+      diagnosis: p.primaryDiagnosis || "",
+      medications: p.medications.map(m => `${m.name} ${m.dosage}`),
+      tests: p.tests || [],
+      notes: p.notes || "",
+      visitType: p.visitType,
+    }));
+
+  const allergyKeywords = ["allergy", "allergic", "anaphylaxis", "intolerance", "hypersensitivity", "rash", "urticaria", "penicillin", "sulfa", "nsaid"];
+// AFTER — also match phone to avoid cross-patient allergy bleed
+const allNotes = existingPatients
+  .filter(p =>
+    p.name.toLowerCase() === item.name.toLowerCase() &&
+    (!item.phone || !p.phone || p.phone === item.phone)
+  )
+  .map(p => (p.notes + " " + p.symptoms + " " + p.chiefComplaint).toLowerCase())
+  .join(" ");
+  const detectedAllergies = allergyKeywords.filter(k => allNotes.includes(k));
+
+  return {
+    id: `PT-${item.id.replace(/\D/g, "")}`,
+    patientId: `PT-${item.id.replace(/\D/g, "")}`,
+    queueId: item.queueId || item.id,
+    name: item.name,
+    age: Number(item.age),
+    gender: item.gender,
+    time: item.checkInTime,
+    status: "pending",
+    visitType: item.visitType,
+    reason: item.reason,
+    vitals: { bloodPressure: item.bloodPressure, heartRate: Number(item.heartRate), temperature: Number(item.temperature) },
+    symptoms: "",
+    chiefComplaint: "",
+    primaryDiagnosis: "",
+    notes: "",
+    followUp: undefined,
+    tests: [],
+    medications: [],
+    allergies: detectedAllergies.length > 0 ? detectedAllergies : undefined,
+    pastVisits: undefined,
+historyLoaded: false,
+  };
+};
+
 export default function Dashboard() {
   const [user, setUser] = useState<{ id: string; fullName: string; role: string; department?: string; employeeId: string; clinicId?: string } | null>(null);
   const [loading, setLoading] = useState(true);
@@ -98,9 +193,10 @@ export default function Dashboard() {
   const [patients, setPatients] = useState<Patient[]>([]);
   const [sidebarOpen, setSidebarOpen] = useState(true);
   const [ehrTab, setEhrTab] = useState<"notes" | "history">("notes");
+  const [showAlertPopup, setShowAlertPopup] = useState(false);
 
   const [activePatient, setActivePatient] = useState<Patient | null>(null);
-  const [isExamining, setIsExamining] = useState(false);
+  const [, setIsExamining] = useState(false);
   const autoSaveTimer = useRef<number | null>(null);
   const [searchQuery, setSearchQuery] = useState("");
   const [statusFilter, setStatusFilter] = useState<"all" | "pending" | "treating" | "completed" | "revisit">("all");
@@ -113,61 +209,18 @@ export default function Dashboard() {
   const [newMedRemarks, setNewMedRemarks] = useState("");
   // State for dosage options based on selected drug
   const [dosageOptions, setDosageOptions] = useState<string[]>([]);
-  const DEFAULT_DOSAGES = [
-    "5mg", "10mg", "25mg", "50mg", "100mg", "250mg", "500mg", "650mg", "1g",
-    "1 tablet", "2 tablets", "1 capsule", "5ml", "10ml", "15ml",
-    "1 puff", "2 puffs", "1 drop", "2 drops", "Apply thin layer"
-  ];
-  // Mock dosage map (drug -> dosage list)
-  const dosageMap: Record<string, string[]> = {
-    Paracetamol: ["500mg", "650mg", "1g", "5ml", "10ml", "15ml"],
-    Ibuprofen: ["200mg", "400mg", "600mg", "800mg"],
-    Aspirin: ["81mg", "150mg", "325mg", "500mg"],
-    Clopidogrel: ["75mg", "150mg", "300mg"],
-    Atorvastatin: ["5mg", "10mg", "20mg", "40mg", "80mg"],
-    Rosuvastatin: ["5mg", "10mg", "20mg", "40mg", "80mg"],
-    Metoprolol: ["25mg", "50mg", "100mg", "200mg"],
-    Atenolol: ["25mg", "50mg", "100mg"],
-    Amlodipine: ["2.5mg", "5mg", "10mg"],
-    Losartan: ["25mg", "50mg", "100mg"],
-    Lisinopril: ["2.5mg", "5mg", "10mg", "20mg"],
-    Ramipril: ["2.5mg", "5mg", "10mg", "20mg"],
-    Furosemide: ["20mg", "40mg", "80mg"],
-    Spironolactone: ["25mg", "50mg", "100mg"],
-    Amoxicillin: ["250mg", "500mg", "875mg"],
-    Azithromycin: ["250mg", "500mg"],
-    Ciprofloxacin: ["250mg", "500mg", "750mg"],
-    Doxycycline: ["100mg"],
-    Metronidazole: ["250mg", "400mg", "500mg"],
-    Omeprazole: ["20mg", "40mg"],
-    Pantoprazole: ["20mg", "40mg"],
-    Esomeprazole: ["20mg", "40mg"],
-    Rabeprazole: ["20mg", "40mg"],
-    Domperidone: ["10mg", "30mg"],
-    Ondansetron: ["4mg", "8mg"],
-    Cetirizine: ["5mg", "10mg"],
-    Loratadine: ["10mg"],
-    Prednisolone: ["5mg", "10mg", "20mg", "40mg"],
-    Dexamethasone: ["0.5mg", "1mg", "2mg", "4mg", "8mg"],
-    Metformin: ["500mg", "850mg", "1000mg"],
-    Gabapentin: ["100mg", "300mg", "400mg", "600mg", "800mg"],
-    Pregabalin: ["50mg", "75mg", "150mg", "300mg"],
-    Levetiracetam: ["250mg", "500mg", "750mg", "1000mg"],
-    Clonazepam: ["0.25mg", "0.5mg", "1mg", "2mg"],
-    Alprazolam: ["0.25mg", "0.5mg", "1mg", "2mg"],
-  };
 
   const [editBP, setEditBP] = useState("");
-  const [editHR, setEditHR] = useState("");
-  const [editTemp, setEditTemp] = useState("");
-  const [editSpO2, setEditSpO2] = useState("");
-  const [editRR, setEditRR] = useState("");
-  const [editWeight, setEditWeight] = useState("");
-  const [editHeight, setEditHeight] = useState("");
+  const [editHR, setEditHR] = useState<string | number>("");
+  const [editTemp, setEditTemp] = useState<string | number>("");
+  const [editSpO2, setEditSpO2] = useState<string | number>("");
+  const [editRR, setEditRR] = useState<string | number>("");
+  const [editWeight, setEditWeight] = useState<string | number>("");
+  const [editHeight, setEditHeight] = useState<string | number>("");
   const [editIop, setEditIop] = useState("");
-  const [editPeakFlow, setEditPeakFlow] = useState("");
-  const [editBloodGlucose, setEditBloodGlucose] = useState("");
-  const [editPainScore, setEditPainScore] = useState("");
+  const [editPeakFlow, setEditPeakFlow] = useState<string | number>("");
+  const [editBloodGlucose, setEditBloodGlucose] = useState<string | number>("");
+  const [editPainScore, setEditPainScore] = useState<string | number>("");
   
   const [editSymptoms, setEditSymptoms] = useState("");
   const [editChiefComplaint, setEditChiefComplaint] = useState("");
@@ -183,25 +236,30 @@ export default function Dashboard() {
   const [medSearchOpen, setMedSearchOpen] = useState(false);
 
   const [favMedicines, setFavMedicines] = useState<string[]>([]);
+
   useEffect(() => {
-    try { setFavMedicines(JSON.parse(localStorage.getItem("favMedicines") || "[]")); } catch {}
+    try {
+      const storedUser = localStorage.getItem("user");
+      const storedFavs = localStorage.getItem("favMedicines");
+      if (storedUser) {
+        setUser(JSON.parse(storedUser));
+      }
+      if (storedFavs) {
+        setFavMedicines(JSON.parse(storedFavs));
+      }
+    } catch {
+      // ignore invalid local storage data
+    } finally {
+      setLoading(false);
+    }
   }, []);
 
   // Update dosage options when medication name changes
   useEffect(() => {
-    if (newMedName) {
-      const matchKey = Object.keys(dosageMap).find(
-        (key) => key.toLowerCase() === newMedName.trim().toLowerCase()
-      );
-      if (matchKey) {
-        setDosageOptions(dosageMap[matchKey]);
-      } else {
-        setDosageOptions(DEFAULT_DOSAGES);
-      }
-    } else {
-      setDosageOptions(DEFAULT_DOSAGES);
-    }
-    // Reset selected dosage if it is not in the new options
+    const matchKey = Object.keys(dosageMap).find(
+      (key) => key.toLowerCase() === newMedName.trim().toLowerCase()
+    );
+    setDosageOptions(matchKey ? dosageMap[matchKey] : dosageDefaults);
     setNewMedDosage("");
   }, [newMedName]);
 
@@ -258,14 +316,13 @@ export default function Dashboard() {
     const storedUser = localStorage.getItem("user");
     if (!token || !storedUser) {
       window.location.href = "/";
-    } else {
-      setUser(JSON.parse(storedUser));
-      setLoading(false);
+      return;
+    }
 
-      // Fetch vitals configurations for the clinic
-      fetch(`${API_BASE_URL}/api/vital-configs`, {
-        headers: { Authorization: `Bearer ${token}` }
-      })
+    // Fetch vitals configurations for the clinic
+    fetch(`${API_BASE_URL}/api/vital-configs`, {
+      headers: { Authorization: `Bearer ${token}` }
+    })
         .then(res => res.json())
         .then(data => {
           if (data.configs) {
@@ -277,70 +334,43 @@ export default function Dashboard() {
           }
         })
         .catch(console.error);
-    }
   }, []);
 
-  useEffect(() => {
+useEffect(() => {
     const storedUser = localStorage.getItem("user");
     if (!storedUser) return;
     const parsedUser = JSON.parse(storedUser);
-    if (!parsedUser?.clinicId) return;
+
+    // Prefer the clinicId from the logged-in user state in case localStorage differs
+    const clinicId = parsedUser?.clinicId || user?.clinicId;
+    if (!clinicId) return;
+
     const API_BASE = process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:4000";
-    fetch(`${API_BASE}/api/clinics`)
+    // Fetch only the needed clinic to avoid wrong matches
+    fetch(`${API_BASE}/api/clinics/${encodeURIComponent(clinicId)}`)
       .then(r => r.json())
       .then(data => {
-        const match = (data.clinics || []).find((c: { id: string; name: string; address?: string }) => c.id === parsedUser.clinicId);
-        if (match) {
-          setClinicName(match.name);
-          setClinicAddress(match.address || "");
+        // API may return either the clinic object directly or { clinic }
+        const clinic = data?.clinic || data;
+        if (clinic?.name) {
+          setClinicName(clinic.name);
+          setClinicAddress(clinic.address || "");
         }
       })
-      .catch(() => {});
-  }, []);
-
-  const queueItemToPatient = (item: QueueItem): Patient => {
-    const prevVisits = patients
-      .filter(p => p.name.toLowerCase() === item.name.toLowerCase() && p.status === "completed" && p.id !== `PT-${item.id.replace(/\D/g, "")}`)
-      .slice(0, 5)
-      .map(p => ({
-        date: p.time,
-        diagnosis: p.primaryDiagnosis || "",
-        medications: p.medications.map(m => `${m.name} ${m.dosage}`),
-        tests: p.tests || [],
-        notes: p.notes || "",
-        visitType: p.visitType,
-      }));
-
-    const allergyKeywords = ["allergy", "allergic", "anaphylaxis", "intolerance", "hypersensitivity", "rash", "urticaria", "penicillin", "sulfa", "nsaid"];
-    const allNotes = patients
-      .filter(p => p.name.toLowerCase() === item.name.toLowerCase())
-      .map(p => (p.notes + " " + p.symptoms + " " + p.chiefComplaint).toLowerCase())
-      .join(" ");
-    const detectedAllergies = allergyKeywords.filter(k => allNotes.includes(k));
-
-    return {
-      id: `PT-${item.id.replace(/\D/g, "")}`,
-      patientId: `PT-${item.id.replace(/\D/g, "")}`,
-      queueId: item.queueId || item.id,
-      name: item.name,
-      age: Number(item.age),
-      gender: item.gender,
-      time: item.checkInTime,
-      status: "pending",
-      visitType: item.visitType,
-      reason: item.reason,
-      vitals: { bloodPressure: item.bloodPressure, heartRate: Number(item.heartRate), temperature: Number(item.temperature) },
-      symptoms: "",
-      chiefComplaint: "",
-      primaryDiagnosis: "",
-      notes: "",
-      followUp: undefined,
-      tests: [],
-      medications: [],
-      allergies: detectedAllergies.length > 0 ? detectedAllergies : undefined,
-      pastVisits: prevVisits.length > 0 ? prevVisits : [],
-    };
-  };
+      .catch(() => {
+        // Fallback to old behavior if /api/clinics/:id is not available
+        fetch(`${API_BASE}/api/clinics`)
+          .then(r => r.json())
+          .then(data => {
+            const match = (data.clinics || []).find((c: { id: string; name: string; address?: string }) => c.id === clinicId);
+            if (match) {
+              setClinicName(match.name);
+              setClinicAddress(match.address || "");
+            }
+          })
+          .catch(() => {});
+      });
+  }, [user?.clinicId]);
 
   const [activeTab, setActiveTab] = useState<"overview" | "schedule" | "patients">("overview");
 
@@ -369,7 +399,8 @@ export default function Dashboard() {
             pastVisits: patient.pastVisits || [],
           }));
         setPatients(loadedPatients);
-      } catch (e) {}
+      } catch {
+      }
     }
 
     const storedQueue = localStorage.getItem("queue");
@@ -378,9 +409,10 @@ export default function Dashboard() {
         const parsedQueue = JSON.parse(storedQueue) as QueueItem[];
         setQueue(parsedQueue);
         if (parsedQueue.length && loadedPatients.length === 0) {
-          setPatients(parsedQueue.map(queueItemToPatient));
+          setPatients(parsedQueue.map((item) => queueItemToPatient(item, loadedPatients)));
         }
-      } catch (e) {}
+      } catch {
+      }
     }
   }, []);
 
@@ -408,6 +440,14 @@ export default function Dashboard() {
           notes?: string; followUp?: string; tests?: string[]; medications?: Patient["medications"];
           patientId?: string; status?: string; visitType?: "new" | "revisit" | "followup";
           visitCount?: number;
+          spO2?: number;
+          respiratoryRate?: number;
+          weight?: number;
+          height?: number;
+          iop?: string;
+          peakFlow?: number;
+          bloodGlucose?: number;
+          painScore?: number;
         }) => ({
           id: item.id,
           patientId: item.patientId,
@@ -427,6 +467,14 @@ export default function Dashboard() {
             bloodPressure: item.bloodPressure || "",
             heartRate: Number(item.heartRate) || 0,
             temperature: Number(item.temperature) || 0,
+            spO2: item.spO2 !== undefined && item.spO2 !== null ? Number(item.spO2) : undefined,
+            respiratoryRate: item.respiratoryRate !== undefined && item.respiratoryRate !== null ? Number(item.respiratoryRate) : undefined,
+            weight: item.weight !== undefined && item.weight !== null ? Number(item.weight) : undefined,
+            height: item.height !== undefined && item.height !== null ? Number(item.height) : undefined,
+            iop: item.iop || undefined,
+            peakFlow: item.peakFlow !== undefined && item.peakFlow !== null ? Number(item.peakFlow) : undefined,
+            bloodGlucose: item.bloodGlucose !== undefined && item.bloodGlucose !== null ? Number(item.bloodGlucose) : undefined,
+            painScore: item.painScore !== undefined && item.painScore !== null ? Number(item.painScore) : undefined,
           },
           symptoms: item.symptoms || "",
           chiefComplaint: item.chiefComplaint || "",
@@ -485,16 +533,16 @@ export default function Dashboard() {
   useEffect(() => {
     if (activePatient) {
       setEditBP(activePatient.vitals.bloodPressure);
-      setEditHR(activePatient.vitals.heartRate);
-      setEditTemp(activePatient.vitals.temperature);
-      setEditSpO2(activePatient.vitals.spO2 ?? 0);
-      setEditRR(activePatient.vitals.respiratoryRate ?? 0);
-      setEditWeight(activePatient.vitals.weight ?? 0);
-      setEditHeight(activePatient.vitals.height ?? 0);
+      setEditHR(activePatient.vitals.heartRate.toString());
+      setEditTemp(activePatient.vitals.temperature.toString());
+      setEditSpO2((activePatient.vitals.spO2 ?? "").toString());
+      setEditRR((activePatient.vitals.respiratoryRate ?? "").toString());
+      setEditWeight((activePatient.vitals.weight ?? "").toString());
+      setEditHeight((activePatient.vitals.height ?? "").toString());
       setEditIop(activePatient.vitals.iop ?? "");
-      setEditPeakFlow(activePatient.vitals.peakFlow ?? 0);
-      setEditBloodGlucose(activePatient.vitals.bloodGlucose ?? 0);
-      setEditPainScore(activePatient.vitals.painScore ?? 0);
+      setEditPeakFlow((activePatient.vitals.peakFlow ?? "").toString());
+      setEditBloodGlucose((activePatient.vitals.bloodGlucose ?? "").toString());
+      setEditPainScore((activePatient.vitals.painScore ?? "").toString());
       setEditSymptoms(activePatient.symptoms ?? "");
       setEditChiefComplaint(activePatient.chiefComplaint ?? "");
       setEditPrimaryDiagnosis(activePatient.primaryDiagnosis ?? "");
@@ -508,10 +556,10 @@ export default function Dashboard() {
   useEffect(() => {
     if (!activePatient) return;
     setEhrTab("notes");
-    if (activePatient.pastVisits !== undefined) {
-      console.log("[History Effect] pastVisits already loaded, skipping fetch");
-      return;
-    }
+    if (activePatient.historyLoaded) {
+  console.log("[History Effect] already loaded, skipping fetch");
+  return;
+}
 
     const API_BASE = process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:4000";
     const token = localStorage.getItem("accessToken");
@@ -525,6 +573,7 @@ export default function Dashboard() {
 
     const fetchHistory = async () => {
       console.log("[History Fetch] Starting fetch for patient", activePatient?.queueId);
+        const patientId = activePatient.id;  // 👈 ADD THIS LINE HERE
       try {
         const recRes = await fetch(`${API_BASE}/api/patients/${activePatient.queueId}`, {
           headers: { Authorization: `Bearer ${token}` },
@@ -566,19 +615,23 @@ export default function Dashboard() {
         }));
 
         if (history && history.length > 0) {
-          console.log(`[History Fetch] Retrieved ${history.length} past visits`);
-          setActivePatient(prev => prev && prev.id === activePatient.id ? { ...prev, pastVisits: history } : prev);
-          setPatients(prev => prev.map(p => p.id === activePatient.id ? { ...p, pastVisits: history } : p));
+  console.log(`[History Fetch] Retrieved ${history.length} past visits`);
+  setActivePatient(prev => prev?.id === patientId
+  ? { ...prev, pastVisits: history, historyLoaded: true }
+  : prev
+);
+setPatients(prev => prev.map(p =>
+  p.id === patientId ? { ...p, pastVisits: history, historyLoaded: true } : p
+));
         } else {
           console.log("[History Fetch] No past visits found, setting empty array");
-          setActivePatient(prev => prev && prev.id === activePatient.id ? { ...prev, pastVisits: [] } : prev);
-          setPatients(prev => prev.map(p => p.id === activePatient.id ? { ...p, pastVisits: [] } : p));
+  setActivePatient(prev => prev?.id === patientId ? { ...prev, pastVisits: [] } : prev);
+  setPatients(prev => prev.map(p => p.id === patientId ? { ...p, pastVisits: [] } : p));
         }
       } catch (err) {
         console.error('[History Fetch] Unexpected error while loading patient history:', err);
-        // Ensure spinner stops by setting empty pastVisits on error
-        setActivePatient(prev => prev && { ...prev, pastVisits: [] });
-        setPatients(prev => prev.map(p => p.id === activePatient?.id ? { ...p, pastVisits: [] } : p));
+  setActivePatient(prev => prev?.id === patientId ? { ...prev, pastVisits: [] } : prev);
+  setPatients(prev => prev.map(p => p.id === patientId ? { ...p, pastVisits: [] } : p));
       }
     };
 
@@ -589,7 +642,8 @@ export default function Dashboard() {
   useEffect(() => {
     try {
       localStorage.setItem("patients", JSON.stringify(patients));
-    } catch (e) {}
+    } catch {
+    }
   }, [patients]);
 
   useEffect(() => {
@@ -598,46 +652,63 @@ export default function Dashboard() {
     if (autoSaveTimer.current) {
       window.clearTimeout(autoSaveTimer.current);
     }
-    const buildVitals = () => ({
-      bloodPressure: editBP,
-      heartRate: Number(editHR),
-      temperature: Number(editTemp),
-      ...(editSpO2     ? { spO2: Number(editSpO2) }             : {}),
-      ...(editRR       ? { respiratoryRate: Number(editRR) }     : {}),
-      ...(editWeight   ? { weight: Number(editWeight) }          : {}),
-      ...(editHeight   ? { height: Number(editHeight) }          : {}),
-      ...(editIop      ? { iop: editIop }                        : {}),
-      ...(editPeakFlow ? { peakFlow: Number(editPeakFlow) }      : {}),
-      ...(editBloodGlucose ? { bloodGlucose: Number(editBloodGlucose) } : {}),
-      ...(editPainScore    ? { painScore: Number(editPainScore) }       : {}),
-    });
+    const buildVitalsSafely = (prevVitals: any) => {
+  const weight = (editWeight !== "" && editWeight !== undefined && editWeight !== null)
+    ? Number(editWeight)
+    : prevVitals?.weight;
+  const height = (editHeight !== "" && editHeight !== undefined && editHeight !== null)
+    ? Number(editHeight)
+    : prevVitals?.height;
+
+  // BMI = kg / (height_in_metres)^2
+  const bmi = (weight && height && height > 0)
+    ? parseFloat((weight / Math.pow(height / 100, 2)).toFixed(1))
+    : prevVitals?.bmi;
+
+  return {
+    bloodPressure: editBP !== "" ? editBP : prevVitals?.bloodPressure || "",
+    heartRate: editHR !== "" ? Number(editHR) : (prevVitals?.heartRate ?? 0),
+    temperature: editTemp !== "" ? Number(editTemp) : (prevVitals?.temperature ?? 0),
+    ...(editSpO2        !== "" ? { spO2: Number(editSpO2) }                : prevVitals?.spO2 !== undefined        ? { spO2: prevVitals.spO2 } : {}),
+    ...(editRR          !== "" ? { respiratoryRate: Number(editRR) }        : prevVitals?.respiratoryRate !== undefined ? { respiratoryRate: prevVitals.respiratoryRate } : {}),
+    ...(weight  !== undefined  ? { weight }                                 : {}),
+    ...(height  !== undefined  ? { height }                                 : {}),
+    ...(bmi     !== undefined  ? { bmi }                                    : {}),
+    ...(editIop         !== "" ? { iop: editIop }                           : prevVitals?.iop !== undefined          ? { iop: prevVitals.iop } : {}),
+    ...(editPeakFlow    !== "" ? { peakFlow: Number(editPeakFlow) }         : prevVitals?.peakFlow !== undefined      ? { peakFlow: prevVitals.peakFlow } : {}),
+    ...(editBloodGlucose !== "" ? { bloodGlucose: Number(editBloodGlucose) }: prevVitals?.bloodGlucose !== undefined  ? { bloodGlucose: prevVitals.bloodGlucose } : {}),
+    ...(editPainScore   !== "" ? { painScore: Number(editPainScore) }       : prevVitals?.painScore !== undefined     ? { painScore: prevVitals.painScore } : {}),
+  };
+};
+
     autoSaveTimer.current = window.setTimeout(() => {
       setActivePatient(prev => {
         if (!prev || prev.id !== activePatient.id) return prev;
         return {
           ...prev,
-          symptoms: editSymptoms,
-          chiefComplaint: editChiefComplaint,
-          primaryDiagnosis: editPrimaryDiagnosis,
-          notes: editNotes,
-          tests: editTests,
-          vitals: buildVitals(),
-          followUp: editFollowUp || undefined,
-        };
+          symptoms: editSymptoms !== undefined ? editSymptoms : prev.symptoms ?? "",
+chiefComplaint: editChiefComplaint !== undefined ? editChiefComplaint : prev.chiefComplaint ?? "",
+primaryDiagnosis: editPrimaryDiagnosis !== undefined ? editPrimaryDiagnosis : prev.primaryDiagnosis ?? "",
+notes: editNotes !== undefined ? editNotes : prev.notes ?? "",
+tests: Array.isArray(editTests) ? editTests : prev.tests ?? [],
+vitals: buildVitalsSafely(prev.vitals),
+followUp: editFollowUp !== undefined ? (editFollowUp || undefined) : prev.followUp,
+ };
       });
-      setPatients((prev) => prev.map(p => {
-        if (p.id !== activePatient.id) return p;
-        return {
-          ...p,
-          symptoms: editSymptoms,
-          chiefComplaint: editChiefComplaint,
-          primaryDiagnosis: editPrimaryDiagnosis,
-          notes: editNotes,
-          tests: editTests,
-          vitals: buildVitals(),
-          followUp: editFollowUp || undefined,
-        };
-      }));
+      // REPLACE the entire setPatients map callback (lines 679–689) with:
+setPatients((prev) => prev.map(p => {
+  if (p.id !== activePatient.id) return p;
+  return {
+    ...p,
+    symptoms: editSymptoms !== undefined ? editSymptoms : p.symptoms ?? "",
+    chiefComplaint: editChiefComplaint !== undefined ? editChiefComplaint : p.chiefComplaint ?? "",
+    primaryDiagnosis: editPrimaryDiagnosis !== undefined ? editPrimaryDiagnosis : p.primaryDiagnosis ?? "",
+    notes: editNotes !== undefined ? editNotes : p.notes ?? "",
+    followUp: editFollowUp !== undefined ? (editFollowUp || undefined) : p.followUp,
+    tests: Array.isArray(editTests) ? editTests : p.tests ?? [],
+    vitals: buildVitalsSafely(p.vitals),
+  };
+}));
     }, 2000);
 
     return () => {
@@ -680,6 +751,72 @@ export default function Dashboard() {
     const updatedPatient = { ...activePatient, medications: updatedMeds };
     setActivePatient(updatedPatient);
     setPatients(patients.map(p => p.id === activePatient.id ? updatedPatient : p));
+  }
+
+
+  // Fetch full patient details before opening EHR view (fixes missing age/gender/vitals)
+  async function fetchAndOpenPatient(p: Patient & { visitCode?: string }) {
+    const token = localStorage.getItem("accessToken");
+    const API_BASE = process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:4000";
+    const idsToTry = [p.queueId, p.id].filter(Boolean) as string[];
+    let raw: any = null;
+
+    try {
+      for (const identifier of idsToTry) {
+        const res = await fetch(`${API_BASE}/api/patients/${identifier}`, {
+          headers: { Authorization: `Bearer ${token}` },
+        });
+        if (!res.ok) continue;
+        const data = await res.json();
+        raw = data.patient || data;
+        break;
+      }
+
+      if (raw) {
+        // Debug: log raw API payload for troubleshooting missing fields
+        try { console.log("[fetchAndOpenPatient] raw:", raw); } catch {}
+        const merged: Patient = {
+          ...p,
+          age: raw.age !== undefined && raw.age !== null ? Number(raw.age) : p.age,
+          gender: raw.gender || p.gender || "Unknown",
+          phone: raw.phone || p.phone,
+          address: raw.address || p.address,
+          visitCount: raw.visitCount ?? p.visitCount,
+          department: raw.department || p.department,
+          doctor: raw.doctor || p.doctor,
+          vitals: {
+            bloodPressure: raw.bloodPressure || p.vitals?.bloodPressure || "",
+            heartRate: raw.heartRate !== undefined && raw.heartRate !== null ? Number(raw.heartRate) : p.vitals?.heartRate || 0,
+            temperature: raw.temperature !== undefined && raw.temperature !== null ? Number(raw.temperature) : p.vitals?.temperature || 0,
+            spO2: raw.spO2 !== undefined && raw.spO2 !== null ? Number(raw.spO2) : p.vitals?.spO2,
+            respiratoryRate: raw.respiratoryRate !== undefined && raw.respiratoryRate !== null ? Number(raw.respiratoryRate) : p.vitals?.respiratoryRate,
+            weight: raw.weight !== undefined && raw.weight !== null ? Number(raw.weight) : p.vitals?.weight,
+            height: raw.height !== undefined && raw.height !== null ? Number(raw.height) : p.vitals?.height,
+            iop: raw.iop !== undefined && raw.iop !== null ? raw.iop : p.vitals?.iop,
+            peakFlow: raw.peakFlow !== undefined && raw.peakFlow !== null ? Number(raw.peakFlow) : p.vitals?.peakFlow,
+            bloodGlucose: raw.bloodGlucose !== undefined && raw.bloodGlucose !== null ? Number(raw.bloodGlucose) : p.vitals?.bloodGlucose,
+            painScore: raw.painScore !== undefined && raw.painScore !== null ? Number(raw.painScore) : p.vitals?.painScore,
+          },
+          chiefComplaint: raw.chiefComplaint || p.chiefComplaint || "",
+          primaryDiagnosis: raw.primaryDiagnosis || p.primaryDiagnosis || "",
+          symptoms: raw.symptoms || p.symptoms || "",
+          notes: raw.notes || p.notes || "",
+          tests: raw.tests || p.tests || [],
+          medications: raw.medications || p.medications || [],
+        };
+        // Debug: log merged patient object before setting state
+        try { console.log("[fetchAndOpenPatient] merged:", merged); } catch {}
+        setActivePatient(merged);
+        setPatients((prev) => prev.map((item) => item.id === merged.id ? merged : item));
+      } else {
+        setActivePatient(p);
+      }
+    } catch {
+      setActivePatient(p);
+    }
+
+    setIsExamining(true);
+    setActiveTab("overview");
   }
 
   function addTest(e: React.FormEvent) {
@@ -986,7 +1123,7 @@ export default function Dashboard() {
     URL.revokeObjectURL(url);
   }
 
-  function savePatientClinicalNotes() {
+  async function savePatientClinicalNotes() {
     if (!activePatient) return;
 
     const builtVitals: Patient["vitals"] = {
@@ -1019,7 +1156,7 @@ export default function Dashboard() {
 
     const token = localStorage.getItem("accessToken");
     if (token && activePatient.queueId) {
-      fetch(`${process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:4000"}/api/patients/${activePatient.queueId}`, {
+      await fetch(`${process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:4000"}/api/patients/${activePatient.queueId}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
         body: JSON.stringify({
@@ -1047,27 +1184,29 @@ export default function Dashboard() {
   }
 
   async function completeConsultation() {
-    if (!activePatient) return;
+  if (!activePatient) return;
 
-    const updatedPatient: Patient = { ...activePatient, status: "completed" };
-    setPatients(patients.map(p => p.id === activePatient.id ? updatedPatient : p));
-    setActivePatient(null);
-    setIsExamining(false);
-    setActiveTab("patients");
+  // Save latest edits before completing
+  await savePatientClinicalNotes();
 
-    const token = localStorage.getItem("accessToken");
-    if (token && activePatient.queueId) {
-      try {
-        await fetch(`${process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:4000"}/api/patients/${activePatient.queueId}`, {
-          method: "PATCH",
-          headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
-          body: JSON.stringify({ status: "completed" }),
-        });
-      } catch (e) {
-        console.error("Failed to update patient status:", e);
+  const updatedPatient: Patient = { ...activePatient, status: "completed" };
+  setActivePatient(updatedPatient);
+  setPatients(prev => prev.map(p => p.id === activePatient.id ? updatedPatient : p));
+
+  const token = localStorage.getItem("accessToken");
+  if (token && activePatient.queueId) {
+    await fetch(
+      `${process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:4000"}/api/patients/${activePatient.queueId}`,
+      {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ status: "completed" }),
       }
-    }
+    ).catch(console.error);
   }
+  setActivePatient(null);
+  setIsExamining(false);
+}
 
   function handleQueueCheckIn(e: React.FormEvent) {
     e.preventDefault();
@@ -1110,7 +1249,7 @@ export default function Dashboard() {
     };
 
     setQueue([...queue, newQueueItem]);
-    setPatients([...patients, queueItemToPatient(newQueueItem)]);
+    setPatients([...patients, queueItemToPatient(newQueueItem, patients)]);
     setRecFullName("");
     setRecAge("");
     setRecSex("Male");
@@ -1231,8 +1370,8 @@ export default function Dashboard() {
     { key: "General",          keywords: ["general", "family", "gp ", "internal", "medicine", "primary"] },
   ];
 
-  function getDeptVitals(): VitalField[] {
-    const dept = (user?.department ?? "").trim().toLowerCase();
+  function getDeptVitals(department?: string): VitalField[] {
+    const dept = (department ?? user?.department ?? "").trim().toLowerCase();
     
     // 1. Try to find a custom configuration matching this department directly
     if (vitalConfigs[dept]) {
@@ -1259,35 +1398,49 @@ export default function Dashboard() {
   }
 
   function getVitalValue(fieldKey: string): string | number {
-    switch (fieldKey) {
-      case "bloodPressure":   return editBP;
-      case "heartRate":       return editHR;
-      case "temperature":     return editTemp;
-      case "spO2":            return editSpO2;
-      case "respiratoryRate": return editRR;
-      case "weight":          return editWeight;
-      case "height":          return editHeight;
-      case "iop":             return editIop;
-      case "peakFlow":        return editPeakFlow;
-      case "bloodGlucose":    return editBloodGlucose;
-      case "painScore":       return editPainScore;
-      default:                return "";
+    // Prefer the transient edited value (when examining), otherwise fall back
+    // to the stored value on the loaded `activePatient` record.
+    const valFromEdit = (() => {
+      switch (fieldKey) {
+        case "bloodPressure":   return editBP;
+        case "heartRate":       return editHR;
+        case "temperature":     return editTemp;
+        case "spO2":            return editSpO2;
+        case "respiratoryRate": return editRR;
+        case "weight":          return editWeight;
+        case "height":          return editHeight;
+        case "iop":             return editIop;
+        case "peakFlow":        return editPeakFlow;
+        case "bloodGlucose":    return editBloodGlucose;
+        case "painScore":       return editPainScore;
+        default:                return "";
+      }
+    })();
+
+    if (valFromEdit !== undefined && valFromEdit !== null && String(valFromEdit).trim() !== "") return valFromEdit;
+
+    if (activePatient && activePatient.vitals) {
+      const vp: any = (activePatient as any).vitals || {};
+      const stored = vp[fieldKey];
+      if (stored !== undefined && stored !== null && String(stored).trim() !== "") return stored;
     }
+
+    return "";
   }
 
   function setVitalValue(fieldKey: string, raw: string) {
     switch (fieldKey) {
       case "bloodPressure":   setEditBP(raw); break;
-      case "heartRate":       setEditHR(Number(raw)); break;
-      case "temperature":     setEditTemp(Number(raw)); break;
-      case "spO2":            setEditSpO2(Number(raw)); break;
-      case "respiratoryRate": setEditRR(Number(raw)); break;
-      case "weight":          setEditWeight(Number(raw)); break;
-      case "height":          setEditHeight(Number(raw)); break;
+      case "heartRate":       setEditHR(raw); break;
+      case "temperature":     setEditTemp(raw); break;
+      case "spO2":            setEditSpO2(raw); break;
+      case "respiratoryRate": setEditRR(raw); break;
+      case "weight":          setEditWeight(raw); break;
+      case "height":          setEditHeight(raw); break;
       case "iop":             setEditIop(raw); break;
-      case "peakFlow":        setEditPeakFlow(Number(raw)); break;
-      case "bloodGlucose":    setEditBloodGlucose(Number(raw)); break;
-      case "painScore":       setEditPainScore(Number(raw)); break;
+      case "peakFlow":        setEditPeakFlow(raw); break;
+      case "bloodGlucose":    setEditBloodGlucose(raw); break;
+      case "painScore":       setEditPainScore(raw); break;
     }
   }
   // ─────────────────────────────────────────────────────────────────────────
@@ -1301,59 +1454,104 @@ export default function Dashboard() {
   function getVitalStatus(key: string): VitalStatus {
     switch (key) {
       case "bloodPressure": {
-        if (!editBP || !editBP.includes("/")) return "none";
-        const [sys, dia] = editBP.split("/").map(Number);
+        // For completed-view we don't rely on editBP; use patient vitals.
+        // Prefer edit value when examining, otherwise compute from activePatient.vitals.
+        const bpForCheck = (editBP && editBP.includes("/"))
+          ? editBP
+          : (() => {
+              const v: any = (activePatient as any)?.vitals || {};
+              const storedBp = v?.bloodPressure;
+              return typeof storedBp === "string" && storedBp.includes("/") ? storedBp : "";
+            })();
+
+        if (!bpForCheck) return "none";
+        const [sys, dia] = bpForCheck.split("/").map(Number);
         if (isNaN(sys) || isNaN(dia)) return "none";
         if (sys >= 140 || dia >= 90) return "high";
         if (sys < 90  || dia < 60)  return "low";
         return "normal";
       }
-      case "heartRate":
-        if (!editHR) return "none";
-        if (editHR > 100) return "high";
-        if (editHR < 60)  return "low";
+      case "heartRate": {
+        const value = Number(editHR);
+        if (Number.isNaN(value) || value === 0) return "none";
+        if (value > 100) return "high";
+        if (value < 60)  return "low";
         return "normal";
-      case "temperature":
-        if (!editTemp) return "none";
-        if (editTemp > 99.5) return "high";
-        if (editTemp < 97.0) return "low";
+      }
+      case "temperature": {
+        const value = Number(editTemp);
+        if (Number.isNaN(value) || value === 0) return "none";
+        if (value > 99.5) return "high";
+        if (value < 97.0) return "low";
         return "normal";
-      case "spO2":
-        if (!editSpO2) return "none";
-        if (editSpO2 < 90) return "low";
-        if (editSpO2 < 95) return "low";
+      }
+      case "spO2": {
+        const value = Number(editSpO2);
+        if (Number.isNaN(value) || value === 0) return "none";
+        if (value < 90) return "low";
+        if (value < 95) return "low";
         return "normal";
-      case "respiratoryRate":
-        if (!editRR) return "none";
-        if (editRR > 20) return "high";
-        if (editRR < 12) return "low";
+      }
+      case "respiratoryRate": {
+        const value = Number(editRR);
+        if (Number.isNaN(value) || value === 0) return "none";
+        if (value > 20) return "high";
+        if (value < 12) return "low";
         return "normal";
-      case "bloodGlucose":
-        if (!editBloodGlucose) return "none";
-        if (editBloodGlucose > 180) return "high";
-        if (editBloodGlucose < 70)  return "low";
+      }
+      case "bloodGlucose": {
+        const value = Number(editBloodGlucose);
+        if (Number.isNaN(value) || value === 0) return "none";
+        if (value > 180) return "high";
+        if (value < 70)  return "low";
         return "normal";
-      case "painScore":
-        if (!editPainScore) return "none";
-        if (editPainScore >= 7) return "high";
-        if (editPainScore >= 4) return "high";
-        if (editPainScore > 0)  return "normal";
+      }
+      case "painScore": {
+        const value = Number(editPainScore);
+        if (Number.isNaN(value) || value === 0) return "none";
+        if (value >= 7) return "high";
+        if (value >= 4) return "high";
+        if (value > 0)  return "normal";
         return "none";
-      case "peakFlow":
-        if (!editPeakFlow) return "none";
-        if (editPeakFlow < 200) return "low";
+      }
+      case "peakFlow": {
+        const value = Number(editPeakFlow);
+        if (Number.isNaN(value) || value === 0) return "none";
+        if (value < 200) return "low";
         return "normal";
-      case "weight":
-      case "height":
-      case "iop":
-        return editWeight || editHeight || editIop ? "normal" : "none";
+      }
+      case "weight": {
+        const value = Number(editWeight);
+        if (Number.isNaN(value) || value === 0) return "none";
+        // Simple reference: 50–100kg considered normal
+        if (value < 50) return "low";
+        if (value > 100) return "high";
+        return "normal";
+      }
+      case "height": {
+        const value = Number(editHeight);
+        if (Number.isNaN(value) || value === 0) return "none";
+        // Simple reference: 120–200cm considered normal
+        if (value < 120) return "low";
+        if (value > 200) return "high";
+        return "normal";
+      }
+      case "iop": {
+        const value = Number(editIop);
+        if (Number.isNaN(value) || value === 0) return "none";
+        // If entered as a number, 10–21mmHg considered normal
+        if (value < 10) return "low";
+        if (value > 21) return "high";
+        return "normal";
+      }
       default:
         return "none";
     }
   }
 
   /** Renders the small indicator badge for a vital status */
-  function VitalIndicator({ status }: { status: VitalStatus }) {
+function VitalIndicator({ status }: { status: VitalStatus }) {
+    // Completed patients need a visible status badge too.
     if (status === "none") return null;
     if (status === "high") return (
       <span
@@ -1585,9 +1783,11 @@ export default function Dashboard() {
     if (statusFilter === "revisit" && !p.followUp) return;
 
     if (matchesSearch) {
-      const key = p.phone || p.name;
+      // Use a stable identity so the same completion doesn't get re-added
+      const key = p.patientId || p.queueId || p.id || p.name;
       if (!seenCompleted.has(key)) {
         seenCompleted.add(key);
+
 
         const deptChar = (p.department || "G").trim().charAt(0).toUpperCase();
         let doc = (p.doctor || "D").trim();
@@ -1811,7 +2011,7 @@ export default function Dashboard() {
                           Consultation Schedule & Worklist
                         </h3>
                         <p className="text-xs text-zinc-400 dark:text-zinc-500 mt-1">
-                          Manage today's consultations, update vitals, and write prescriptions.
+                          {"Manage today's consultations, update vitals, and write prescriptions."}
                         </p>
                       </div>
                     </div>
@@ -1941,7 +2141,7 @@ export default function Dashboard() {
                     </div>
                     <h4 className="font-extrabold text-lg text-zinc-800 dark:text-zinc-200">No Patient Selected</h4>
                     <p className="text-xs text-zinc-400 dark:text-zinc-500 mt-2 max-w-[240px] leading-relaxed">
-                      Click "Examine Patient" on any item in your list to open the full EHR panel.
+                      {"Click \"Examine Patient\" on any item in your list to open the full EHR panel."}
                     </p>
                   </div>
                 </div>
@@ -1977,6 +2177,49 @@ export default function Dashboard() {
                              "👤 New Visit"}
                           </span>
                         )}
+                        {activePatient.allergies && activePatient.allergies.length > 0 && (
+                          <div
+                            className="relative"
+                            onMouseEnter={() => setShowAlertPopup(true)}
+                            onMouseLeave={() => setShowAlertPopup(false)}
+                          >
+                            <button
+                              type="button"
+                              onClick={() => setShowAlertPopup(v => !v)}
+                              className="flex items-center gap-1 text-[10px] px-2 py-0.5 rounded-full font-black bg-rose-100 dark:bg-rose-950/40 text-rose-700 dark:text-rose-300 border border-rose-200 dark:border-rose-800/50 hover:bg-rose-200 dark:hover:bg-rose-900/50 transition-colors animate-pulse"
+                            >
+                              ⚠️ Allergy Note
+                            </button>
+
+                            {showAlertPopup && (
+                              <div className="absolute left-0 top-full mt-2 w-64 z-30 rounded-2xl bg-white dark:bg-zinc-900 border border-rose-200 dark:border-rose-800/50 shadow-xl shadow-rose-500/10 p-4">
+                                <div className="flex items-start gap-2.5">
+                                  <span className="text-lg shrink-0">⚠️</span>
+                                  <div>
+                                    <p className="text-xs font-extrabold text-rose-700 dark:text-rose-300">
+                                      Allergy / Sensitivity Alert
+                                    </p>
+                                    <p className="text-[11px] text-zinc-400 dark:text-zinc-500 font-medium mt-0.5">
+                                      Flagged from clinical notes
+                                    </p>
+                                    <div className="flex flex-wrap gap-1.5 mt-2">
+                                      {activePatient.allergies.map(a => (
+                                        <span
+                                          key={a}
+                                          className="text-[11px] font-bold px-2.5 py-1 rounded-full bg-rose-100 dark:bg-rose-900/40 text-rose-800 dark:text-rose-300 capitalize"
+                                        >
+                                          {a}
+                                        </span>
+                                      ))}
+                                    </div>
+                                  </div>
+                                </div>
+                                {/* little arrow pointing up to the button */}
+                                <div className="absolute -top-1.5 left-5 w-3 h-3 bg-white dark:bg-zinc-900 border-l border-t border-rose-200 dark:border-rose-800/50 rotate-45" />
+                              </div>
+                            )}
+                          </div>
+                        )}
                       </div>
                       <p className="text-xs text-zinc-400 dark:text-zinc-500 mt-0.5 font-semibold">
                         {activePatient.age} yrs • {activePatient.gender} • Check-in {activePatient.time}
@@ -1984,39 +2227,64 @@ export default function Dashboard() {
                     </div>
                   </div>
                   <div className="flex items-center gap-3">
-                    <button
-                      onClick={savePatientClinicalNotes}
-                      className="px-4 py-2 bg-zinc-100 hover:bg-zinc-200 dark:bg-zinc-800 dark:hover:bg-zinc-700 text-zinc-700 dark:text-zinc-200 rounded-xl text-xs font-bold transition-colors"
-                    >
-                      Save Draft
-                    </button>
-                    <button
-                      onClick={downloadPrescriptionPdf}
-                      className="px-4 py-2 bg-indigo-50 hover:bg-indigo-100 dark:bg-indigo-950/40 dark:hover:bg-indigo-950/60 text-indigo-700 dark:text-indigo-300 border border-indigo-200 dark:border-indigo-800 rounded-xl text-xs font-bold transition-colors flex items-center gap-1.5"
-                    >
-                      <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 10v6m0 0l-3-3m3 3l3-3M3 17V7a2 2 0 012-2h6l2 2h6a2 2 0 012 2v8a2 2 0 01-2 2H5a2 2 0 01-2-2z" />
-                      </svg>
-                      Download Rx
-                    </button>
-                    <button
-                      onClick={() => { savePatientClinicalNotes(); completeConsultation(); }}
-                      className="px-5 py-2 bg-sky-600 hover:bg-sky-700 text-white rounded-xl text-xs font-extrabold transition-all shadow-md shadow-sky-500/15 flex items-center gap-2"
-                    >
-                      <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M5 13l4 4L19 7" />
-                      </svg>
-                      Finalize & Close
-                    </button>
-                    <button
-                      onClick={() => setActivePatient(null)}
-                      className="p-2 rounded-xl bg-slate-100 hover:bg-slate-200 dark:bg-zinc-800 dark:hover:bg-zinc-700 transition-colors"
-                      title="Close panel"
-                    >
-                      <svg className="w-4 h-4 text-zinc-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M6 18L18 6M6 6l12 12" />
-                      </svg>
-                    </button>
+                    {activePatient.status === "completed" ? (
+                      <>
+                        <button
+                          onClick={downloadPrescriptionPdf}
+                          className="px-5 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-xs font-extrabold transition-all shadow-md shadow-indigo-500/15 flex items-center gap-2"
+                        >
+                          <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 10v6m0 0l-3-3m3 3l3-3M3 17V7a2 2 0 012-2h6l2 2h6a2 2 0 012 2v8a2 2 0 01-2 2H5a2 2 0 01-2-2z" />
+                          </svg>
+                          Download Report
+                        </button>
+                        <button
+                          onClick={() => setActivePatient(null)}
+                          className="p-2 rounded-xl bg-slate-100 hover:bg-slate-200 dark:bg-zinc-800 dark:hover:bg-zinc-700 transition-colors"
+                          title="Close panel"
+                        >
+                          <svg className="w-4 h-4 text-zinc-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M6 18L18 6M6 6l12 12" />
+                          </svg>
+                        </button>
+                      </>
+                    ) : (
+                      <>
+                        <button
+                          onClick={savePatientClinicalNotes}
+                          className="px-4 py-2 bg-zinc-100 hover:bg-zinc-200 dark:bg-zinc-800 dark:hover:bg-zinc-700 text-zinc-700 dark:text-zinc-200 rounded-xl text-xs font-bold transition-colors"
+                        >
+                          Save Draft
+                        </button>
+                        <button
+                          onClick={downloadPrescriptionPdf}
+                          className="px-4 py-2 bg-indigo-50 hover:bg-indigo-100 dark:bg-indigo-950/40 dark:hover:bg-indigo-950/60 text-indigo-700 dark:text-indigo-300 border border-indigo-200 dark:border-indigo-800 rounded-xl text-xs font-bold transition-colors flex items-center gap-1.5"
+                        >
+                          <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 10v6m0 0l-3-3m3 3l3-3M3 17V7a2 2 0 012-2h6l2 2h6a2 2 0 012 2v8a2 2 0 01-2 2H5a2 2 0 01-2-2z" />
+                          </svg>
+                          Download Rx
+                        </button>
+                        <button
+                          onClick={() => { savePatientClinicalNotes().then(() => completeConsultation()); }}
+                          className="px-5 py-2 bg-sky-600 hover:bg-sky-700 text-white rounded-xl text-xs font-extrabold transition-all shadow-md shadow-sky-500/15 flex items-center gap-2"
+                        >
+                          <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M5 13l4 4L19 7" />
+                          </svg>
+                          Finalize & Close
+                        </button>
+                        <button
+                          onClick={() => setActivePatient(null)}
+                          className="p-2 rounded-xl bg-slate-100 hover:bg-slate-200 dark:bg-zinc-800 dark:hover:bg-zinc-700 transition-colors"
+                          title="Close panel"
+                        >
+                          <svg className="w-4 h-4 text-zinc-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M6 18L18 6M6 6l12 12" />
+                          </svg>
+                        </button>
+                      </>
+                    )}
                   </div>
                 </div>
 
@@ -2074,7 +2342,7 @@ export default function Dashboard() {
                             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
                           </svg>
                           <p className="text-sm font-medium">No previous visits found</p>
-                          <p className="text-xs mt-1 text-zinc-400">This appears to be the patient's first visit</p>
+                          <p className="text-xs mt-1 text-zinc-400">{"This appears to be the patient's first visit"}</p>
                         </div>
                       )}
                       {activePatient.pastVisits && activePatient.pastVisits.map((v, i) => (
@@ -2171,7 +2439,7 @@ export default function Dashboard() {
 
                             {v.notes && (
                               <div className="p-3 rounded-xl bg-amber-50/40 dark:bg-amber-950/10 border border-amber-100 dark:border-amber-900/20">
-                                <p className="text-[9px] font-extrabold uppercase tracking-wider text-amber-500 mb-1">Doctor's Notes</p>
+                                <p className="text-[9px] font-extrabold uppercase tracking-wider text-amber-500 mb-1">{"Doctor's Notes"}</p>
                                 <p className="text-xs text-zinc-600 dark:text-zinc-400 leading-relaxed">{v.notes}</p>
                               </div>
                             )}
@@ -2182,7 +2450,7 @@ export default function Dashboard() {
                   )}
 
                   {/* NOTES TAB */}
-                  {ehrTab === "notes" && (
+                  {ehrTab === "notes" && activePatient.status !== "completed" && (
                     <div className="space-y-8">
                       {/* Vitals Row — dynamically rendered per department */}
                       <section>
@@ -2207,18 +2475,29 @@ export default function Dashboard() {
                               : status === "low"
                               ? "ring-1 ring-blue-300 dark:ring-blue-700"
                               : "";
+
+                            const val = getVitalValue(vf.key);
+                            const isEmpty = val === "" || val === null || val === undefined;
+
                             return (
                               <div key={vf.key} className={`p-4 border rounded-2xl transition-all ${bgBorder} ${outlineCls}`}>
-                                <div className="flex items-center justify-between mb-1">
-                                  <span className={`text-[10px] font-bold ${labelColor}`}>{vf.label}</span>
+                                <div className="flex items-start justify-between gap-2 mb-1">
+                                  <div className="min-w-0">
+                                    <span className={`text-[10px] font-bold ${labelColor}`}>{vf.label}</span>
+                                    {/* optimal range text next to indicator */}
+                                    <div className="text-[9px] font-bold text-zinc-500 dark:text-zinc-400 mt-0.5 leading-tight">
+                                      {vf.key === "weight" ? "Optimal: 50–100 kg" :
+                                      vf.key === "height" ? "Optimal: 120–200 cm" : ""}
+                                    </div>
+                                  </div>
                                   <VitalIndicator status={status} />
                                 </div>
                                 <input
                                   type={vf.inputType}
                                   step={vf.step}
-                                  value={getVitalValue(vf.key)}
+                                  value={isEmpty ? "" : val}
                                   onChange={(e) => setVitalValue(vf.key, e.target.value)}
-                                  placeholder={vf.placeholder}
+                                  placeholder=""
                                   className="w-full bg-transparent border-0 p-0 text-base font-black focus:outline-none text-zinc-800 dark:text-zinc-100"
                                 />
                                 <span className="text-[10px] text-zinc-400">{vf.unit}</span>
@@ -2545,7 +2824,7 @@ export default function Dashboard() {
                             Download Prescription
                           </button>
                           <button
-                            onClick={() => { savePatientClinicalNotes(); completeConsultation(); }}
+                            onClick={() => { savePatientClinicalNotes().then(() => completeConsultation()); }}
                             className="px-6 py-2.5 bg-sky-600 hover:bg-sky-700 text-white rounded-2xl text-sm font-extrabold transition-all shadow-md shadow-sky-500/15 flex items-center gap-2"
                           >
                             <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -2554,6 +2833,119 @@ export default function Dashboard() {
                             Finalize Consultation
                           </button>
                         </div>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* NOTES TAB — READ ONLY SUMMARY (completed patients) */}
+                  {ehrTab === "notes" && activePatient.status === "completed" && (
+                    <div className="space-y-6">
+                      {/* Vitals summary */}
+                      <section>
+                        <h4 className="text-[10px] font-extrabold uppercase tracking-widest text-zinc-400 dark:text-zinc-500 mb-3">
+                          Diagnostic Vitals
+                        </h4>
+                        <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-6 gap-4">
+                          {getDeptVitals(activePatient.department).map((vf) => {
+                            const colorParts = vf.color.split(" ");
+                            const labelColor = colorParts.filter(c => c.startsWith("text-")).join(" ");
+                            const bgBorder   = colorParts.filter(c => !c.startsWith("text-")).join(" ");
+                            const status     = getVitalStatus(vf.key);
+                            const outlineCls = status === "high"
+                              ? "ring-1 ring-red-300 dark:ring-red-700"
+                              : status === "low"
+                              ? "ring-1 ring-blue-300 dark:ring-blue-700"
+                              : "";
+                            const val        = getVitalValue(vf.key);
+                            return (
+                              <div key={vf.key} className={`p-4 border rounded-2xl transition-all ${bgBorder} ${outlineCls}`}>
+                                <div className="flex items-center justify-between mb-1">
+                                  <span className={`text-[10px] font-bold ${labelColor}`}>{vf.label}</span>
+                                  <VitalIndicator status={status} />
+                                </div>
+                                <p className="text-base font-black text-zinc-800 dark:text-zinc-100 leading-tight">
+                                  {val || "—"}
+                                </p>
+                                <span className="text-[10px] text-zinc-400">{vf.unit}</span>
+                              </div>
+                            );
+                          })}
+                          <div className="p-4 bg-slate-50 dark:bg-zinc-800/40 border border-zinc-100 dark:border-zinc-800 rounded-2xl">
+                            <span className="text-[10px] font-bold text-zinc-400 block mb-1">Age</span>
+                            <p className="text-base font-black text-zinc-800 dark:text-zinc-100">{activePatient.age > 0 ? activePatient.age : "—"}</p>
+                            <span className="text-[10px] text-zinc-400">years</span>
+                          </div>
+                          <div className="p-4 bg-slate-50 dark:bg-zinc-800/40 border border-zinc-100 dark:border-zinc-800 rounded-2xl">
+                            <span className="text-[10px] font-bold text-zinc-400 block mb-1">Gender</span>
+                            <p className="text-base font-black text-zinc-800 dark:text-zinc-100">{activePatient.gender && activePatient.gender !== "Unknown" ? activePatient.gender : "—"}</p>
+                          </div>
+                        </div>
+                      </section>
+
+                      {/* Clinical summary */}
+                      <section className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                        <div className="p-4 bg-slate-50 dark:bg-zinc-800/40 border border-zinc-100 dark:border-zinc-800 rounded-2xl">
+                          <p className="text-[9px] font-extrabold uppercase tracking-wider text-zinc-400 mb-1">Chief Complaint</p>
+                          <p className="text-sm font-semibold text-zinc-800 dark:text-zinc-200">{activePatient.chiefComplaint || "—"}</p>
+                        </div>
+                        <div className="p-4 bg-slate-50 dark:bg-zinc-800/40 border border-zinc-100 dark:border-zinc-800 rounded-2xl">
+                          <p className="text-[9px] font-extrabold uppercase tracking-wider text-zinc-400 mb-1">Primary Diagnosis</p>
+                          <p className="text-sm font-semibold text-zinc-800 dark:text-zinc-200">{activePatient.primaryDiagnosis || "—"}</p>
+                        </div>
+                        <div className="p-4 bg-slate-50 dark:bg-zinc-800/40 border border-zinc-100 dark:border-zinc-800 rounded-2xl md:col-span-2">
+                          <p className="text-[9px] font-extrabold uppercase tracking-wider text-zinc-400 mb-1">Symptoms</p>
+                          <p className="text-sm text-zinc-700 dark:text-zinc-300 whitespace-pre-wrap">{activePatient.symptoms || "—"}</p>
+                        </div>
+                        <div className="p-4 bg-slate-50 dark:bg-zinc-800/40 border border-zinc-100 dark:border-zinc-800 rounded-2xl md:col-span-2">
+                          <p className="text-[9px] font-extrabold uppercase tracking-wider text-zinc-400 mb-1">Doctor&apos;s Notes</p>
+                          <p className="text-sm text-zinc-700 dark:text-zinc-300 whitespace-pre-wrap">{activePatient.notes || "—"}</p>
+                        </div>
+                        {activePatient.tests && activePatient.tests.length > 0 && (
+                          <div className="p-4 bg-slate-50 dark:bg-zinc-800/40 border border-zinc-100 dark:border-zinc-800 rounded-2xl md:col-span-2">
+                            <p className="text-[9px] font-extrabold uppercase tracking-wider text-zinc-400 mb-2">Tests Ordered</p>
+                            <div className="flex flex-wrap gap-1.5">
+                              {activePatient.tests.map(t => (
+                                <span key={t} className="text-[11px] font-bold px-2.5 py-1 rounded-full bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-700 text-zinc-600 dark:text-zinc-300">{t}</span>
+                              ))}
+                            </div>
+                          </div>
+                        )}
+                      </section>
+
+                      {/* Medications summary */}
+                      <section>
+                        <p className="text-[9px] font-extrabold uppercase tracking-wider text-zinc-400 mb-2">Prescribed Medications</p>
+                        <div className="space-y-2">
+                          {activePatient.medications.length > 0 ? (
+                            activePatient.medications.map((med, idx) => (
+                              <div key={idx} className="flex justify-between items-start p-3 bg-slate-50 dark:bg-zinc-800/40 border border-zinc-100 dark:border-zinc-800 rounded-xl">
+                                <div className="min-w-0">
+                                  <p className="text-xs font-black text-zinc-800 dark:text-zinc-200">{med.name}</p>
+                                  <p className="text-[10px] text-zinc-400 font-bold mt-0.5">{med.dosage} • {med.frequency}{med.days ? ` • ${med.days}` : ""}</p>
+                                  {med.remarks && <p className="text-[10px] text-zinc-500 italic mt-0.5">{med.remarks}</p>}
+                                </div>
+                              </div>
+                            ))
+                          ) : (
+                            <p className="text-xs text-zinc-400 italic text-center py-3">No medications were prescribed.</p>
+                          )}
+                        </div>
+                      </section>
+
+                      {/* Bottom action bar — view only */}
+                      <div className="flex items-center justify-between pt-2 border-t border-zinc-100 dark:border-zinc-800">
+                        <button onClick={() => setActivePatient(null)} className="px-5 py-2.5 text-sm font-semibold text-zinc-500 hover:text-zinc-700 dark:text-zinc-400 dark:hover:text-zinc-200 transition-colors">
+                          ← Back to List
+                        </button>
+                        <button
+                          onClick={downloadPrescriptionPdf}
+                          className="px-5 py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-2xl text-sm font-extrabold transition-all shadow-md shadow-indigo-500/15 flex items-center gap-2"
+                        >
+                          <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 10v6m0 0l-3-3m3 3l3-3M3 17V7a2 2 0 012-2h6l2 2h6a2 2 0 012 2v8a2 2 0 01-2 2H5a2 2 0 01-2-2z" />
+                          </svg>
+                          Download Report
+                        </button>
                       </div>
                     </div>
                   )}
@@ -2642,7 +3034,11 @@ export default function Dashboard() {
                                   </div>
                                   <div>
                                     <p className="font-bold text-zinc-800 dark:text-zinc-200">{p.name}</p>
-                                    <p className="text-xs text-zinc-400 mt-0.5">{p.age} y/o · {p.gender}</p>
+                                    <p className="text-xs text-zinc-400 mt-0.5">
+                                      {p.age > 0 ? `${p.age} y/o` : "—"}
+                                      {p.age > 0 && p.gender && p.gender !== "Unknown" ? " · " : ""}
+                                      {p.gender && p.gender !== "Unknown" ? p.gender : "—"}
+                                    </p>
                                   </div>
                                 </div>
                               </td>
@@ -2660,7 +3056,7 @@ export default function Dashboard() {
                               <td className="px-5 py-4 text-xs text-zinc-400 whitespace-nowrap">{p.time}</td>
                               <td className="px-5 py-4">
                                 <button
-                                  onClick={() => { setActivePatient(p); setIsExamining(true); setActiveTab("overview"); }}
+                                  onClick={() => fetchAndOpenPatient(p)}
                                   className="text-xs font-bold px-3 py-1.5 rounded-lg border border-zinc-200 dark:border-zinc-700 text-zinc-600 dark:text-zinc-400 hover:bg-slate-100 dark:hover:bg-zinc-800 transition-colors"
                                 >
                                   View

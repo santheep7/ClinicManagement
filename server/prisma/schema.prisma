@@ -59,6 +59,14 @@ model Patient {
   bloodPressure    String    @default("")
   heartRate        Int       @default(0)
   temperature      Float     @default(0.0)
+  spO2             Int?
+  respiratoryRate  Int?
+  weight           Float?
+  height           Float?
+  iop              String?
+  peakFlow         Int?
+  bloodGlucose     Int?
+  painScore        Int?
   symptoms         String    @default("")
   chiefComplaint   String    @default("")
   primaryDiagnosis String    @default("")

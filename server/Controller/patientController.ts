@@ -28,6 +28,14 @@ type PatientInput = {
   bloodPressure?: string;
   heartRate?: number;
   temperature?: number;
+  spO2?: number;
+  respiratoryRate?: number;
+  weight?: number;
+  height?: number;
+  iop?: string;
+  peakFlow?: number;
+  bloodGlucose?: number;
+  painScore?: number;
   symptoms?: string;
   chiefComplaint?: string;
   primaryDiagnosis?: string;
@@ -73,6 +81,14 @@ function mapPatientToQueueItem(patient: any) {
     bloodPressure: patient.bloodPressure,
     heartRate: String(patient.heartRate),
     temperature: String(patient.temperature),
+    spO2: patient.spO2 !== null && patient.spO2 !== undefined ? Number(patient.spO2) : null,
+    respiratoryRate: patient.respiratoryRate !== null && patient.respiratoryRate !== undefined ? Number(patient.respiratoryRate) : null,
+    weight: patient.weight !== null && patient.weight !== undefined ? Number(patient.weight) : null,
+    height: patient.height !== null && patient.height !== undefined ? Number(patient.height) : null,
+    iop: patient.iop !== null && patient.iop !== undefined ? String(patient.iop) : null,
+    peakFlow: patient.peakFlow !== null && patient.peakFlow !== undefined ? Number(patient.peakFlow) : null,
+    bloodGlucose: patient.bloodGlucose !== null && patient.bloodGlucose !== undefined ? Number(patient.bloodGlucose) : null,
+    painScore: patient.painScore !== null && patient.painScore !== undefined ? Number(patient.painScore) : null,
     symptoms: patient.symptoms,
     chiefComplaint: patient.chiefComplaint,
     primaryDiagnosis: patient.primaryDiagnosis,
@@ -201,6 +217,14 @@ function normalizePatientInput(body: any): PatientInput {
     bloodPressure: String(body.bloodPressure ?? ""),
     heartRate: body.heartRate !== undefined && body.heartRate !== null ? Number(body.heartRate) : 0,
     temperature: body.temperature !== undefined && body.temperature !== null ? Number(body.temperature) : 0.0,
+    spO2: body.spO2 !== undefined && body.spO2 !== null && body.spO2 !== "" ? Number(body.spO2) : undefined,
+    respiratoryRate: body.respiratoryRate !== undefined && body.respiratoryRate !== null && body.respiratoryRate !== "" ? Number(body.respiratoryRate) : undefined,
+    weight: body.weight !== undefined && body.weight !== null && body.weight !== "" ? Number(body.weight) : undefined,
+    height: body.height !== undefined && body.height !== null && body.height !== "" ? Number(body.height) : undefined,
+    iop: body.iop !== undefined && body.iop !== null && body.iop !== "" ? String(body.iop).trim() : undefined,
+    peakFlow: body.peakFlow !== undefined && body.peakFlow !== null && body.peakFlow !== "" ? Number(body.peakFlow) : undefined,
+    bloodGlucose: body.bloodGlucose !== undefined && body.bloodGlucose !== null && body.bloodGlucose !== "" ? Number(body.bloodGlucose) : undefined,
+    painScore: body.painScore !== undefined && body.painScore !== null && body.painScore !== "" ? Number(body.painScore) : undefined,
     symptoms: String(body.symptoms ?? ""),
     chiefComplaint: String(body.chiefComplaint ?? ""),
     primaryDiagnosis: String(body.primaryDiagnosis ?? ""),
@@ -272,6 +296,14 @@ export async function createPatient(req: Request, res: Response) {
         bloodPressure: input.bloodPressure,
         heartRate: input.heartRate,
         temperature: input.temperature,
+        spO2: input.spO2 ?? null,
+        respiratoryRate: input.respiratoryRate ?? null,
+        weight: input.weight ?? null,
+        height: input.height ?? null,
+        iop: input.iop ?? null,
+        peakFlow: input.peakFlow ?? null,
+        bloodGlucose: input.bloodGlucose ?? null,
+        painScore: input.painScore ?? null,
         symptoms: input.symptoms,
         chiefComplaint: input.chiefComplaint,
         primaryDiagnosis: input.primaryDiagnosis,
@@ -404,7 +436,13 @@ export async function getPatientById(req: Request, res: Response) {
     const clinicId = (req as AuthRequest).clinicId;
 
     const patient = await prisma.patient.findFirst({
-      where: { queueId: id, ...(clinicId ? { clinicId } : {}) },
+      where: {
+        ...(clinicId ? { clinicId } : {}),
+        OR: [
+          { queueId: id },
+          { id },
+        ],
+      },
       include: { doctor: true },
     });
 
@@ -489,6 +527,8 @@ export async function updatePatient(req: Request, res: Response) {
   try {
     const { id } = req.params;
     const clinicId = (req as AuthRequest).clinicId;
+    // Temporary debug: log incoming update payload to help diagnose missing fields
+    try { console.log(`[updatePatient] incoming for ${id}:`, req.body); } catch (e) { /* ignore */ }
     const input = normalizePatientInput(req.body);
 
     const patient = await prisma.patient.findFirst({
@@ -509,26 +549,34 @@ export async function updatePatient(req: Request, res: Response) {
     const updated = await prisma.patient.update({
       where: { queueId: id },
       data: {
-        name: input.name || patient.name,
-        age: input.age ?? patient.age,
-        gender: input.gender || patient.gender,
-        phone: input.phone || patient.phone,
-        address: input.address || patient.address,
+        name: 'name' in req.body ? input.name : patient.name,
+        age: 'age' in req.body ? input.age : patient.age,
+        gender: 'gender' in req.body ? input.gender : patient.gender,
+        phone: 'phone' in req.body ? input.phone : patient.phone,
+        address: 'address' in req.body ? input.address : patient.address,
         doctorId: input.doctorId || patient.doctorId,
-        department: input.department || patient.department,
-        reason: input.reason || patient.reason,
-        priority: input.priority || patient.priority,
-        checkInTime: input.checkInTime || patient.checkInTime,
-        status: input.status || patient.status,
-        bloodPressure: input.bloodPressure ?? patient.bloodPressure,
-        heartRate: input.heartRate ?? patient.heartRate,
-        temperature: input.temperature ?? patient.temperature,
-        symptoms: input.symptoms ?? patient.symptoms,
-        chiefComplaint: input.chiefComplaint ?? patient.chiefComplaint,
-        primaryDiagnosis: input.primaryDiagnosis ?? patient.primaryDiagnosis,
-        notes: input.notes ?? patient.notes,
-        followUp: input.followUp !== undefined ? input.followUp : patient.followUp,
-        visitType: input.visitType || patient.visitType,
+        department: 'department' in req.body ? input.department : patient.department,
+        reason: 'reason' in req.body ? input.reason : patient.reason,
+        priority: 'priority' in req.body ? input.priority : patient.priority,
+        checkInTime: 'checkInTime' in req.body ? input.checkInTime : patient.checkInTime,
+        status: 'status' in req.body ? input.status : patient.status,
+        bloodPressure: 'bloodPressure' in req.body ? (req.body.bloodPressure ?? patient.bloodPressure) : patient.bloodPressure,
+        heartRate: 'heartRate' in req.body ? input.heartRate : patient.heartRate,
+        temperature: 'temperature' in req.body ? input.temperature : patient.temperature,
+        spO2: 'spO2' in req.body ? (req.body.spO2 === "" || req.body.spO2 === null || req.body.spO2 === undefined ? null : Number(req.body.spO2)) : patient.spO2,
+        respiratoryRate: 'respiratoryRate' in req.body ? (req.body.respiratoryRate === "" || req.body.respiratoryRate === null || req.body.respiratoryRate === undefined ? null : Number(req.body.respiratoryRate)) : patient.respiratoryRate,
+        weight: 'weight' in req.body ? (req.body.weight === "" || req.body.weight === null || req.body.weight === undefined ? null : Number(req.body.weight)) : patient.weight,
+        height: 'height' in req.body ? (req.body.height === "" || req.body.height === null || req.body.height === undefined ? null : Number(req.body.height)) : patient.height,
+        iop: 'iop' in req.body ? (req.body.iop === "" || req.body.iop === null || req.body.iop === undefined ? null : String(req.body.iop)) : patient.iop,
+        peakFlow: 'peakFlow' in req.body ? (req.body.peakFlow === "" || req.body.peakFlow === null || req.body.peakFlow === undefined ? null : Number(req.body.peakFlow)) : patient.peakFlow,
+        bloodGlucose: 'bloodGlucose' in req.body ? (req.body.bloodGlucose === "" || req.body.bloodGlucose === null || req.body.bloodGlucose === undefined ? null : Number(req.body.bloodGlucose)) : patient.bloodGlucose,
+        painScore: 'painScore' in req.body ? (req.body.painScore === "" || req.body.painScore === null || req.body.painScore === undefined ? null : Number(req.body.painScore)) : patient.painScore,
+        symptoms: 'symptoms' in req.body ? input.symptoms : patient.symptoms,
+        chiefComplaint: 'chiefComplaint' in req.body ? input.chiefComplaint : patient.chiefComplaint,
+        primaryDiagnosis: 'primaryDiagnosis' in req.body ? input.primaryDiagnosis : patient.primaryDiagnosis,
+        notes: 'notes' in req.body ? input.notes : patient.notes,
+        followUp: 'followUp' in req.body ? input.followUp : patient.followUp,
+        visitType: 'visitType' in req.body ? input.visitType : patient.visitType,
         tests: input.tests && input.tests.length > 0 ? input.tests : (patient.tests as string[]),
         medications: input.medications && input.medications.length > 0 ? input.medications : patient.medications,
       },

@@ -4,6 +4,7 @@ import { useState, useRef, useEffect } from "react";
 import Image from "next/image";
 import gsap from "gsap";
 import { useGSAP } from "@gsap/react";
+import { toast } from "sonner";
 
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:4000";
 
@@ -60,16 +61,17 @@ export default function Home() {
   const [siPassword, setSiPassword] = useState("");
   const [siErrors, setSiErrors] = useState<{ employeeId?: string; password?: string }>({});
   const [siLoading, setSiLoading] = useState(false);
-  const [siMessage, setSiMessage] = useState("");
   const [showSiPassword, setShowSiPassword] = useState(false);
   const [siMatchedClinic, setSiMatchedClinic] = useState<Clinic | null>(null);
 
   // Debounced lookup: when employee ID typed, fetch their clinic branding
   useEffect(() => {
-    if (siEmployeeId.trim().length < 3) { setSiMatchedClinic(null); return; }
+    const trimmed = siEmployeeId.trim();
+    // Avoid lookup for placeholder-like IDs (e.g. "EMP-") or very short input
+    if (trimmed.length < 5 || !/^[A-Z]{3}-\d+/.test(trimmed)) { setSiMatchedClinic(null); return; }
     const timer = setTimeout(async () => {
       try {
-        const res = await fetch(`${API_BASE_URL}/api/auth/clinic-by-employee/${encodeURIComponent(siEmployeeId.trim())}`);
+        const res = await fetch(`${API_BASE_URL}/api/auth/clinic-by-employee/${encodeURIComponent(trimmed)}`);
         const data = await res.json();
         setSiMatchedClinic(data.clinic || null);
       } catch {
@@ -92,7 +94,6 @@ export default function Home() {
   const [suCountryCode, setSuCountryCode] = useState("+1");
   const [suErrors, setSuErrors] = useState<Record<string, string>>({});
   const [suLoading, setSuLoading] = useState(false);
-  const [suMessage, setSuMessage] = useState("");
   const [showSuPassword, setShowSuPassword] = useState(false);
 
   const matchedClinic = activeClinics.find(
@@ -162,7 +163,7 @@ export default function Home() {
     if (!siPassword) errs.password = "Password is required.";
     setSiErrors(errs);
     if (Object.keys(errs).length > 0) return;
-    setSiLoading(true); setSiMessage("");
+    setSiLoading(true);
     try {
       const response = await fetch(`${API_BASE_URL}/api/auth/login`, {
         method: "POST",
@@ -170,17 +171,17 @@ export default function Home() {
         body: JSON.stringify({ clinicId: matchedClinic ? matchedClinic.clinicId : "", employeeId: siEmployeeId.trim(), password: siPassword }),
       });
       const data = await response.json();
-      if (!response.ok) { setSiMessage(data.error || "Login failed. Please try again."); return; }
+      if (!response.ok) { toast.error(data.error || "Login failed. Please try again."); return; }
       localStorage.setItem("accessToken", data.accessToken);
       localStorage.setItem("user", JSON.stringify(data.user));
-      setSiMessage("Login successful! Redirecting...");
+      toast.success("Login successful! Redirecting...");
       setTimeout(() => {
         if (data.user?.role === "doctor") window.location.href = "/doctor";
         else if (data.user?.role === "receptionist") window.location.href = "/receptionist";
         else if (data.user?.role === "clinic_admin") window.location.href = "/clinic-admin";
         else window.location.href = "/dashboard";
       }, 1500);
-    } catch (error) { setSiMessage("Network error. Please check your connection and try again."); console.error(error); }
+    } catch (error) { toast.error("Network error. Please check your connection and try again."); console.error(error); }
     finally { setSiLoading(false); }
   }
 
@@ -198,10 +199,10 @@ export default function Home() {
     if (!suClinicId || suClinicId.trim().length === 0) errs.clinicId = "Clinic ID is required.";
     setSuErrors(errs);
     if (Object.keys(errs).length > 0) return;
-    setSuLoading(true); setSuMessage("");
+    setSuLoading(true);
     const matchedClinicReg = activeClinics.find((c) => c.clinicId.trim().toUpperCase() === suClinicId.trim().toUpperCase());
-    if (!matchedClinicReg) { setSuMessage("Registration failed: Invalid Clinic ID."); setSuLoading(false); return; }
-    if (!matchedClinicReg.isActive) { setSuMessage("Registration failed: This clinic is currently Inactive."); setSuLoading(false); return; }
+    if (!matchedClinicReg) { toast.error("Registration failed: Invalid Clinic ID."); setSuLoading(false); return; }
+    if (!matchedClinicReg.isActive) { toast.error("Registration failed: This clinic is currently Inactive."); setSuLoading(false); return; }
     try {
       const response = await fetch(`${API_BASE_URL}/api/auth/register`, {
         method: "POST",
@@ -209,13 +210,13 @@ export default function Home() {
         body: JSON.stringify({ fullName: suName.trim(), phone: combinedPhone.trim(), email: suEmail.toLowerCase().trim(), password: suPassword, employeeId: suEmployeeId.trim(), role: suRole, department: suRole === "doctor" ? suDepartment.trim() : undefined, clinicId: matchedClinicReg.clinicId }),
       });
       const data = await response.json();
-      if (!response.ok) { setSuMessage(data.error || "Registration failed. Please try again."); return; }
-      setSuMessage("Account created successfully! Switching to login...");
+      if (!response.ok) { toast.error(data.error || "Registration failed. Please try again."); return; }
+      toast.success("Account created successfully! Switching to login...");
       setTimeout(() => {
-        setView("signIn"); setSuMessage(""); setSuName(""); setSuPhone(""); setSuCountryCode("+1");
+        setView("signIn"); setSuName(""); setSuPhone(""); setSuCountryCode("+1");
         setSuEmail(""); setSuPassword(""); setSuEmployeeId(""); setSuRole(""); setSuDepartment("");
       }, 2000);
-    } catch (error) { setSuMessage("Network error. Please check your connection and try again."); console.error(error); }
+    } catch (error) { toast.error("Network error. Please check your connection and try again."); console.error(error); }
     finally { setSuLoading(false); }
   }
 
@@ -373,11 +374,6 @@ export default function Home() {
               <>
                 <h2 className="text-3xl font-semibold mb-3 text-sky-600 dark:text-sky-400">Welcome back</h2>
                 <p className="text-base text-sky-500 dark:text-sky-300 mb-6">Sign in to continue to your account.</p>
-                {siMessage && (
-                  <div className={`mb-4 p-3 rounded-lg text-sm ${siMessage.includes("error") || siMessage.includes("failed") ? "bg-red-100 text-red-800" : "bg-emerald-100 text-emerald-800"}`}>
-                    {siMessage}
-                  </div>
-                )}
                 <form onSubmit={handleSignIn} className="space-y-5">
                   <label className="block">
                     <span className="text-sm text-zinc-600 dark:text-zinc-300">Employee ID</span>
@@ -406,11 +402,6 @@ export default function Home() {
               <>
                 <h2 className="text-3xl font-semibold mb-3 text-emerald-600 dark:text-emerald-400">Create account</h2>
                 <p className="text-base text-emerald-500 dark:text-emerald-300 mb-6">Start your free account — quick and secure.</p>
-                {suMessage && (
-                  <div className={`mb-4 p-3 rounded-lg text-sm ${suMessage.includes("error") || suMessage.includes("failed") ? "bg-red-100 text-red-800" : "bg-emerald-100 text-emerald-800"}`}>
-                    {suMessage}
-                  </div>
-                )}
                 {!clinicsLoading && activeClinics.length === 0 ? (
                   <div className="mb-4 p-4 bg-amber-50 border border-amber-200 text-amber-800 rounded-lg">
                     <strong>Registration Closed:</strong> No active clinics are available.

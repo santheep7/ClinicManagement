@@ -85,6 +85,24 @@ export default function ClinicAdminDashboard() {
   const pageContainerRef = useRef<HTMLDivElement>(null);
   const formRef = useRef<HTMLFormElement>(null);
 
+  const fetchConfigs = async (token: string) => {
+    try {
+      const res = await fetch(`${API_BASE_URL}/api/vital-configs`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      const data = await res.json();
+      if (res.ok && data.configs) {
+        setConfigs(data.configs);
+      } else {
+        addToast(data.error || "Failed to load configurations.", "error");
+      }
+    } catch {
+      addToast("Network error: Could not fetch configurations.", "error");
+    } finally {
+      setLoading(false);
+    }
+  };
+
   useEffect(() => {
     const token = localStorage.getItem("accessToken");
     const storedUser = localStorage.getItem("user");
@@ -102,7 +120,12 @@ export default function ClinicAdminDashboard() {
         return;
       }
       setUser(parsedUser);
-      fetchConfigs(token);
+
+      // fetchConfigs is declared below; call it after it exists.
+      // We use an IIFE + await to ensure ordering without relying on microtask timing.
+      (async () => {
+        await fetchConfigs(token);
+      })();
     } catch (e) {
       console.error(e);
       router.push("/");

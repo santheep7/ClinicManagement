@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import { Inter, Geist_Mono } from "next/font/google";
+import { Toaster } from "sonner";
 import ThemeToggle from "./components/ThemeToggle";
 import "./globals.css";
 
@@ -35,6 +36,7 @@ export default function RootLayout({
           <ThemeToggle />
         </div>
         {children}
+        <Toaster richColors position="top-center" />
       </body>
     </html>
   );
