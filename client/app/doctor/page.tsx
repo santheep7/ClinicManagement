@@ -134,29 +134,78 @@ const dosageMap: Record<string, string[]> = {
   Alprazolam: ["0.25mg", "0.5mg", "1mg", "2mg"],
 };
 
-const queueItemToPatient = (item: QueueItem, existingPatients: Patient[]): Patient => {
-  const prevVisits = existingPatients
-    .filter(p => p.name.toLowerCase() === item.name.toLowerCase() && p.status === "completed" && p.id !== `PT-${item.id.replace(/\D/g, "")}`)
-    .slice(0, 5)
-    .map(p => ({
-      date: p.time,
-      diagnosis: p.primaryDiagnosis || "",
-      medications: p.medications.map(m => `${m.name} ${m.dosage}`),
-      tests: p.tests || [],
-      notes: p.notes || "",
-      visitType: p.visitType,
-    }));
+const ALLERGY_KEYWORDS = [
+  "allergy",
+  "allergic",
+  "anaphylaxis",
+  "intolerance",
+  "hypersensitivity",
+  "rash",
+  "urticaria",
+  "penicillin",
+  "sulfa",
+  "nsaid",
+];
 
-  const allergyKeywords = ["allergy", "allergic", "anaphylaxis", "intolerance", "hypersensitivity", "rash", "urticaria", "penicillin", "sulfa", "nsaid"];
-// AFTER — also match phone to avoid cross-patient allergy bleed
-const allNotes = existingPatients
-  .filter(p =>
-    p.name.toLowerCase() === item.name.toLowerCase() &&
-    (!item.phone || !p.phone || p.phone === item.phone)
-  )
-  .map(p => (p.notes + " " + p.symptoms + " " + p.chiefComplaint).toLowerCase())
-  .join(" ");
-  const detectedAllergies = allergyKeywords.filter(k => allNotes.includes(k));
+// Given a block of (already lower-cased) text and the keyword list, return the
+// actual sentence/clause around each matched keyword instead of the bare
+// keyword itself, so the popup can show the doctor's real note.
+function extractAllergySnippets(rawText: string, keywords: string[]): string[] {
+  if (!rawText) return [];
+  // Split into sentence-ish chunks on '.', '!', '?', ';', newlines, or commas.
+  const chunks = rawText
+    .split(/[.!?;\n]+/)
+    .map((c) => c.trim())
+    .filter(Boolean);
+
+  const snippets: string[] = [];
+  for (const keyword of keywords) {
+    const chunk = chunks.find((c) => c.toLowerCase().includes(keyword));
+    if (chunk) {
+      // Capitalize first letter for readability in the popup.
+      const cleaned = chunk.trim();
+      snippets.push(cleaned.charAt(0).toUpperCase() + cleaned.slice(1));
+    }
+  }
+  return snippets;
+}
+
+const queueItemToPatient = (item: QueueItem, existingPatients: Patient[]): Patient => {
+  const allergyKeywords = ALLERGY_KEYWORDS;
+
+  // Look for allergy signals in BOTH:
+  // 1) this patient's intake/queue reason (current visit)
+  // 2) prior stored notes (past visits already in memory)
+  const currentTextRaw = [
+    item.reason,
+    item.department,
+    // include a hint of vitals context so users can type allergies in reason
+    item.bloodPressure,
+  ]
+    .filter(Boolean)
+    .join(". ");
+  const currentText = currentTextRaw.toLowerCase();
+
+  // AFTER — also match phone to avoid cross-patient allergy bleed
+  const matchingPriorPatients = existingPatients.filter(
+    (p) =>
+      p.name.toLowerCase() === item.name.toLowerCase() &&
+      (!item.phone || !p.phone || p.phone === item.phone)
+  );
+  const allNotesRaw = matchingPriorPatients
+    .map((p) => [p.notes, p.symptoms, p.chiefComplaint].filter(Boolean).join(". "))
+    .join(". ");
+  const allNotes = allNotesRaw.toLowerCase();
+
+  const detectedKeywords = allergyKeywords.filter(
+    (k) => currentText.includes(k) || allNotes.includes(k)
+  );
+
+  // Prefer extracting the real snippet from whichever text actually contains it.
+  const combinedRaw = [currentTextRaw, allNotesRaw].filter(Boolean).join(". ");
+  const uniqDetected = Array.from(
+    new Set(extractAllergySnippets(combinedRaw, detectedKeywords))
+  );
 
   return {
     id: `PT-${item.id.replace(/\D/g, "")}`,
@@ -169,7 +218,11 @@ const allNotes = existingPatients
     status: "pending",
     visitType: item.visitType,
     reason: item.reason,
-    vitals: { bloodPressure: item.bloodPressure, heartRate: Number(item.heartRate), temperature: Number(item.temperature) },
+    vitals: {
+      bloodPressure: item.bloodPressure,
+      heartRate: Number(item.heartRate),
+      temperature: Number(item.temperature),
+    },
     symptoms: "",
     chiefComplaint: "",
     primaryDiagnosis: "",
@@ -177,9 +230,9 @@ const allNotes = existingPatients
     followUp: undefined,
     tests: [],
     medications: [],
-    allergies: detectedAllergies.length > 0 ? detectedAllergies : undefined,
+    allergies: uniqDetected.length > 0 ? uniqDetected : undefined,
     pastVisits: undefined,
-historyLoaded: false,
+    historyLoaded: false,
   };
 };
 
@@ -467,7 +520,28 @@ useEffect(() => {
           peakFlow?: number;
           bloodGlucose?: number;
           painScore?: number;
-        }) => ({
+          allergies?: string[];
+        }) => {
+          // Backend may not persist a dedicated allergies field, so always
+          // (re)derive it from the clinical text actually loaded here —
+          // otherwise patients fetched via this polling loader (e.g. the
+          // Completed Patients list) would never show the allergy alert
+          // even when their notes clearly mention one.
+          const derivedTextRaw = [
+            item.symptoms,
+            item.chiefComplaint,
+            item.notes,
+            item.primaryDiagnosis,
+          ]
+            .filter(Boolean)
+            .join(". ");
+          const derivedText = derivedTextRaw.toLowerCase();
+          const derivedKeywords = ALLERGY_KEYWORDS.filter((k) => derivedText.includes(k));
+          const derivedAllergies = Array.from(
+            new Set(extractAllergySnippets(derivedTextRaw, derivedKeywords))
+          );
+
+          return {
           id: item.id,
           patientId: item.patientId,
           queueId: item.queueId || item.id,
@@ -502,7 +576,13 @@ useEffect(() => {
           followUp: item.followUp,
           tests: item.tests || [],
           medications: item.medications || [],
-        }));
+          // Prefer a backend-provided allergies list if present, otherwise fall
+          // back to what we just derived from the visible clinical text.
+          allergies: (item.allergies && item.allergies.length > 0)
+            ? item.allergies
+            : (derivedAllergies.length > 0 ? derivedAllergies : undefined),
+          };
+        });
         setPatients(apiPatients);
       } catch (err) {
         console.error("Failed to load patients from API:", err);
@@ -626,11 +706,14 @@ useEffect(() => {
           visitType: h.visitType,
           chiefComplaint: h.chiefComplaint,
           symptoms: h.symptoms,
+          // Keep existing vitals for display
           bloodPressure: h.bloodPressure,
           heartRate: h.heartRate,
           temperature: h.temperature,
           doctor: h.doctor,
           patientId: h.patientId,
+          // Important: ensure history entries include allergies so the UI can display them
+          allergies: h.allergies,
         }));
 
         if (history && history.length > 0) {
@@ -822,6 +905,26 @@ setPatients((prev) => prev.map(p => {
           notes: raw.notes || p.notes || "",
           tests: raw.tests || p.tests || [],
           medications: raw.medications || p.medications || [],
+          allergies: (() => {
+            const backendAllergies = raw.allergies ?? p.allergies;
+            if (backendAllergies && backendAllergies.length > 0) return backendAllergies;
+            // Backend has no allergies recorded — derive from the clinical
+            // text we just merged so the alert still shows up correctly.
+            const mergedTextRaw = [
+              raw.symptoms || p.symptoms,
+              raw.chiefComplaint || p.chiefComplaint,
+              raw.notes || p.notes,
+              raw.primaryDiagnosis || p.primaryDiagnosis,
+            ]
+              .filter(Boolean)
+              .join(". ");
+            const mergedText = mergedTextRaw.toLowerCase();
+            const mergedKeywords = ALLERGY_KEYWORDS.filter((k) => mergedText.includes(k));
+            const mergedAllergies = Array.from(
+              new Set(extractAllergySnippets(mergedTextRaw, mergedKeywords))
+            );
+            return mergedAllergies.length > 0 ? mergedAllergies : undefined;
+          })(),
         };
         // Debug: log merged patient object before setting state
         try { console.log("[fetchAndOpenPatient] merged:", merged); } catch {}
@@ -847,14 +950,26 @@ setPatients((prev) => prev.map(p => {
     setPatients(patients.map(p => p.id === activePatient.id ? updatedPatient : p));
     setNewTestName("");
   }
-445
-  function removeTest(index: number) {
-    if (!activePatient) return;
+function removeTest(index: number) {
+  if (!activePatient) return;
     const updatedTests = (activePatient.tests || []).filter((_, idx) => idx !== index);
     const updatedPatient = { ...activePatient, tests: updatedTests };
     setActivePatient(updatedPatient);
     setPatients(patients.map(p => p.id === activePatient.id ? updatedPatient : p));
   }
+
+  // Ensure allergy popup works correctly for completed patients.
+  // `showAlertPopup` is local UI state and could be left in an old value,
+  // especially after Save/Finalize transitions.
+  useEffect(() => {
+    if (activePatient?.status === "completed") {
+      // Always initialize from patient data when opening a completed record.
+      // This ensures the allergy popup button state matches stored allergies.
+      setShowAlertPopup(!!activePatient.allergies?.length);
+      return;
+    }
+    setShowAlertPopup(false);
+  }, [activePatient?.id, activePatient?.status, activePatient?.allergies?.length]);
 
   function downloadPrescriptionPdf() {
     if (!activePatient) return;
@@ -1159,6 +1274,22 @@ setPatients((prev) => prev.map(p => {
       ...(editPainScore    ? { painScore: Number(editPainScore) }       : {}),
     };
 
+    // Recalculate allergy keywords immediately from what doctor typed
+    const currentTextRaw = [
+      editSymptoms,
+      editChiefComplaint,
+      editNotes,
+      editPrimaryDiagnosis,
+    ]
+      .filter(Boolean)
+      .join(". ");
+    const currentText = currentTextRaw.toLowerCase();
+
+    const detectedKeywords = ALLERGY_KEYWORDS.filter((k) => currentText.includes(k));
+    const uniqDetected = Array.from(
+      new Set(extractAllergySnippets(currentTextRaw, detectedKeywords))
+    );
+
     const updatedPatient: Patient = {
       ...activePatient,
       symptoms: editSymptoms,
@@ -1168,7 +1299,9 @@ setPatients((prev) => prev.map(p => {
       tests: editTests,
       vitals: builtVitals,
       followUp: editFollowUp || undefined,
+      allergies: uniqDetected.length > 0 ? uniqDetected : undefined,
     };
+
 
     setActivePatient(updatedPatient);
     setPatients(patients.map(p => p.id === activePatient.id ? updatedPatient : p));
@@ -2196,7 +2329,7 @@ function VitalIndicator({ status }: { status: VitalStatus }) {
                              "👤 New Visit"}
                           </span>
                         )}
-                        {activePatient.allergies && activePatient.allergies.length > 0 && (
+                        {activePatient.status !== "completed" && activePatient.allergies && activePatient.allergies.length > 0 && (
                           <div
                             className="relative"
                             onMouseEnter={() => setShowAlertPopup(true)}
@@ -2211,7 +2344,7 @@ function VitalIndicator({ status }: { status: VitalStatus }) {
                             </button>
 
                             {showAlertPopup && (
-                              <div className="absolute left-0 top-full mt-2 w-64 z-30 rounded-2xl bg-white dark:bg-zinc-900 border border-rose-200 dark:border-rose-800/50 shadow-xl shadow-rose-500/10 p-4">
+                              <div className="absolute left-0 top-full mt-2 w-72 z-30 rounded-2xl bg-white dark:bg-zinc-900 border border-rose-200 dark:border-rose-800/50 shadow-xl shadow-rose-500/10 p-4">
                                 <div className="flex items-start gap-2.5">
                                   <span className="text-lg shrink-0">⚠️</span>
                                   <div>
@@ -2221,11 +2354,11 @@ function VitalIndicator({ status }: { status: VitalStatus }) {
                                     <p className="text-[11px] text-zinc-400 dark:text-zinc-500 font-medium mt-0.5">
                                       Flagged from clinical notes
                                     </p>
-                                    <div className="flex flex-wrap gap-1.5 mt-2">
-                                      {activePatient.allergies.map(a => (
+                                    <div className="flex flex-col gap-1.5 mt-2">
+                                      {activePatient.allergies.map((a, i) => (
                                         <span
-                                          key={a}
-                                          className="text-[11px] font-bold px-2.5 py-1 rounded-full bg-rose-100 dark:bg-rose-900/40 text-rose-800 dark:text-rose-300 capitalize"
+                                          key={i}
+                                          className="text-[11px] font-semibold px-2.5 py-1.5 rounded-xl bg-rose-100 dark:bg-rose-900/40 text-rose-800 dark:text-rose-300"
                                         >
                                           {a}
                                         </span>
@@ -2248,15 +2381,45 @@ function VitalIndicator({ status }: { status: VitalStatus }) {
                   <div className="flex items-center gap-3">
                     {activePatient.status === "completed" ? (
                       <>
-                        <button
-                          type="button"
-                          onClick={() => setShowAlertPopup(v => !v)}
-                          disabled={!activePatient.allergies || activePatient.allergies.length === 0}
-                          className="px-3 py-2 bg-rose-100 hover:bg-rose-200 disabled:opacity-50 disabled:cursor-not-allowed dark:bg-rose-950/40 dark:hover:bg-rose-900/50 text-rose-700 dark:text-rose-300 rounded-xl text-xs font-extrabold transition-all border border-rose-200 dark:border-rose-800/50"
-                          title={activePatient.allergies?.length ? "View allergy note" : "No allergies"}
-                        >
-                          ⚠ Allergy
-                        </button>
+                        <div className="relative">
+                          <button
+                            type="button"
+                            onClick={() => setShowAlertPopup(v => !v)}
+                            disabled={!activePatient.allergies || activePatient.allergies.length === 0}
+                            className="px-3 py-2 bg-rose-100 hover:bg-rose-200 disabled:opacity-50 disabled:cursor-not-allowed dark:bg-rose-950/40 dark:hover:bg-rose-900/50 text-rose-700 dark:text-rose-300 rounded-xl text-xs font-extrabold transition-all border border-rose-200 dark:border-rose-800/50"
+                            title={activePatient.allergies?.length ? "View allergy note" : "No allergies"}
+                          >
+                            ⚠ Allergy
+                          </button>
+
+                          {showAlertPopup && activePatient.allergies && activePatient.allergies.length > 0 && (
+                            <div className="absolute right-0 top-full mt-2 w-72 z-30 rounded-2xl bg-white dark:bg-zinc-900 border border-rose-200 dark:border-rose-800/50 shadow-xl shadow-rose-500/10 p-4">
+                              <div className="flex items-start gap-2.5">
+                                <span className="text-lg shrink-0">⚠️</span>
+                                <div>
+                                  <p className="text-xs font-extrabold text-rose-700 dark:text-rose-300">
+                                    Allergy / Sensitivity Alert
+                                  </p>
+                                  <p className="text-[11px] text-zinc-400 dark:text-zinc-500 font-medium mt-0.5">
+                                    Flagged from clinical notes
+                                  </p>
+                                  <div className="flex flex-col gap-1.5 mt-2">
+                                    {activePatient.allergies.map((a, i) => (
+                                      <span
+                                        key={i}
+                                        className="text-[11px] font-semibold px-2.5 py-1.5 rounded-xl bg-rose-100 dark:bg-rose-900/40 text-rose-800 dark:text-rose-300"
+                                      >
+                                        {a}
+                                      </span>
+                                    ))}
+                                  </div>
+                                </div>
+                              </div>
+                              {/* little arrow pointing up to the button */}
+                              <div className="absolute -top-1.5 right-5 w-3 h-3 bg-white dark:bg-zinc-900 border-l border-t border-rose-200 dark:border-rose-800/50 rotate-45" />
+                            </div>
+                          )}
+                        </div>
                         <button
                           onClick={downloadPrescriptionPdf}
                           className="px-5 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-xs font-extrabold transition-all shadow-md shadow-indigo-500/15 flex items-center gap-2"

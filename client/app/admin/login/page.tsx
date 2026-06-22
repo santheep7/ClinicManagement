@@ -4,6 +4,7 @@ import { useState, useRef } from "react";
 import { useRouter } from "next/navigation";
 import gsap from "gsap";
 import { useGSAP } from "@gsap/react";
+import { FaEye, FaEyeSlash } from "react-icons/fa";
 
 export default function AdminLogin() {
   const router = useRouter();
@@ -11,6 +12,7 @@ export default function AdminLogin() {
   const [password, setPassword] = useState("");
   const [error, setError] = useState("");
   const containerRef = useRef<HTMLDivElement>(null);
+  const [showPassword, setShowPassword] = useState(false);
 
   useGSAP(() => {
     gsap.set(".animate-box", { y: 30, opacity: 0 });
@@ -67,17 +69,30 @@ export default function AdminLogin() {
             />
           </div>
           <div className="animate-input">
-            <label className="block text-sm font-medium text-slate-700 mb-1">Password</label>
-            <input 
-              type="password" 
-              className="w-full px-4 py-2 border rounded-md text-slate-800"
-              placeholder="••••••••"
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
-              onFocus={handleFocus}
-              onBlur={handleBlur}
-            />
-          </div>
+  <label className="block text-sm font-medium text-slate-700 mb-1">
+    Password
+  </label>
+
+  <div className="relative">
+    <input
+      type={showPassword ? "text" : "password"}
+      className="w-full px-4 py-2 pr-12 border rounded-md text-slate-800"
+      placeholder="••••••••"
+      value={password}
+      onChange={(e) => setPassword(e.target.value)}
+      onFocus={handleFocus}
+      onBlur={handleBlur}
+    />
+
+    <button
+      type="button"
+      onClick={() => setShowPassword(!showPassword)}
+      className="absolute inset-y-0 right-3 flex items-center text-slate-500 hover:text-slate-700"
+    >
+      {showPassword ? <FaEyeSlash size={18} /> : <FaEye size={18} />}
+    </button>
+  </div>
+</div>
           <button type="submit" className="animate-btn w-full bg-blue-600 text-white py-2 rounded-md hover:bg-blue-700">
             Access Admin Dashboard
           </button>

@@ -202,6 +202,40 @@ function mapRoleToFaculty(role: string): string {
   return "General Staff";
 }
 
+// ─── GET /api/clinics/:id ─────────────────────────────────────────────────────
+
+export async function getClinicById(req: Request, res: Response) {
+  try {
+    const { id } = req.params;
+    if (!id || typeof id !== "string") {
+      return res.status(400).json({ error: "Clinic ID is required." });
+    }
+
+    const clinic = await prisma.clinic.findUnique({
+      where: { id },
+      select: {
+        id: true,
+        clinicId: true,
+        name: true,
+        address: true,
+        phone: true,
+        logo: true,
+        brandColor: true,
+        isActive: true,
+      },
+    });
+
+    if (!clinic) {
+      return res.status(404).json({ error: "Clinic not found." });
+    }
+
+    return res.json({ clinic });
+  } catch (error: any) {
+    console.error("Get clinic by id error:", error);
+    return res.status(500).json({ error: "Unable to fetch clinic.", details: error?.message });
+  }
+}
+
 // ─── GET /api/clinics/:id/staff ───────────────────────────────────────────────
 
 export async function getClinicStaff(req: Request, res: Response) {

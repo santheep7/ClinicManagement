@@ -5,6 +5,7 @@ import {
   getAllClinics,
   updateClinic,
   getClinicStaff,
+  getClinicById,
 } from "../Controller/clinicController";
 
 const router = Router();
@@ -21,7 +22,11 @@ router.post("/", addClinic);
 // Admin — update clinic name, address, phone, logo, brandColor, isActive
 router.patch("/:id", updateClinic);
 
+// Public — clinic by id (used by receptionist/doctor dashboards)
+router.get("/:id", getClinicById);
+
 // Admin — staff for a specific clinic
 router.get("/:id/staff", getClinicStaff);
+
 
 export default router;

@@ -74,8 +74,11 @@ model Patient {
   followUp         String?
   visitType        String    @default("new")
   tests            String[]  @default([])
+  // Allergy keywords detected from clinical text (e.g. contains "allergy", "penicillin", etc.)
+  allergies        String[]  @default([])
   medications      Json      @default("[]")
   createdAt        DateTime  @default(now())
+
   updatedAt        DateTime  @updatedAt
   doctorId         String
   doctor           User      @relation("DoctorPatients", fields: [doctorId], references: [id])

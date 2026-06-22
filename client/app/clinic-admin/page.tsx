@@ -86,6 +86,7 @@ export default function ClinicAdminDashboard() {
   const formRef = useRef<HTMLFormElement>(null);
 
   useEffect(() => {
+    setLoading(true);
     const token = localStorage.getItem("accessToken");
     const storedUser = localStorage.getItem("user");
 

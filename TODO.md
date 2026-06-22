@@ -1,9 +1,8 @@
 # TODO
-
-## Plan (lint + build correctness)
-- [ ] Remove/adjust `setState` calls that occur synchronously inside `useEffect` bodies in `client/app/doctor/page.tsx` to satisfy `react-hooks/set-state-in-effect`.
-- [ ] Remove `any` typings in `client/app/doctor/page.tsx` to satisfy `@typescript-eslint/no-explicit-any`.
-- [ ] Rerun `npm --prefix client run lint` to verify remaining issues.
-- [ ] If lint errors remain in other files (`client/app/clinic-admin/page.tsx`, `client/app/dashboard/page.tsx`, `client/app/page.tsx`, `client/app/receptionist/page.tsx`), apply similar fixes until lint passes.
-- [ ] Run `npm --prefix client test` (or next build command) if available, to confirm build.
+- [ ] Implement server-side fix for `/api/patients/history/:phone` 500.
+  - Normalize phone (digits-only) before Prisma query.
+  - Add detailed error logging (phone/clinicId/excludeId + stack).
+  - Make mapping defensively handle nullables.
+- [ ] Restart server and retest receptionist -> visit history flow.
+- [ ] Verify UI receives `200` and renders history list (no 500).
 

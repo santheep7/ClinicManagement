@@ -127,10 +127,25 @@ export default function AdminDashboard() {
 
   // ─── Animations ────────────────────────────────────────────────────────────
   useGSAP(() => {
-    gsap.from(".animate-header", { y: -20, opacity: 0, duration: 0.6, stagger: 0.1, ease: "power3.out" });
-    gsap.from(".animate-panel",  { y: 30,  opacity: 0, duration: 0.6, stagger: 0.2, ease: "power3.out", delay: 0.2 });
-    gsap.from(".animate-input",  { x: -20, opacity: 0, duration: 0.4, stagger: 0.1, ease: "back.out(1.7)", delay: 0.5 });
-    gsap.from(".animate-btn",    { scale: 0.9, opacity: 0, duration: 0.4, ease: "elastic.out(1, 0.7)", delay: 0.8 });
+    if (!containerRef.current) return;
+
+    const has = (selector: string) => containerRef.current?.querySelector(selector);
+
+    if (has(".animate-header")) {
+      gsap.from(".animate-header", { y: -20, opacity: 0, duration: 0.6, stagger: 0.1, ease: "power3.out" });
+    }
+
+    if (has(".animate-panel")) {
+      gsap.from(".animate-panel", { y: 30, opacity: 0, duration: 0.6, stagger: 0.2, ease: "power3.out", delay: 0.2 });
+    }
+
+    if (has(".animate-input")) {
+      gsap.from(".animate-input", { x: -20, opacity: 0, duration: 0.4, stagger: 0.1, ease: "back.out(1.7)", delay: 0.5 });
+    }
+
+    if (has(".animate-btn")) {
+      gsap.from(".animate-btn", { scale: 0.9, opacity: 0, duration: 0.4, ease: "elastic.out(1, 0.7)", delay: 0.8 });
+    }
   }, { scope: containerRef });
 
   const animateModalIn = useCallback(() => {

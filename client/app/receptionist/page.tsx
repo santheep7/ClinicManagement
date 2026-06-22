@@ -35,6 +35,8 @@ interface User {
   role: string;
   clinicId?: string;
   clinicName?: string;
+  // Some persisted receptionist objects include id; keep optional to satisfy TS.
+  id?: string;
 }
 
 interface DoctorOption {
@@ -268,15 +270,30 @@ export default function ReceptionistDashboard() {
       window.location.href = "/";
     }
 
-    // FIX #7 — warn on corrupted localStorage instead of silent catch
+    const completedPatientsStorageKey = (() => {
+      // parsed is block-scoped in the try above; derive key from `parsed` safely by re-parsing
+      // (avoids TS error “Cannot find name 'parsed'” during typecheck)
+      let clinicId = "unknown-clinic";
+      let userId = "unknown-user";
+      try {
+        const p = JSON.parse(storedUser) as User;
+        clinicId = p.clinicId ?? clinicId;
+        userId = p.id ?? userId;
+      } catch {
+        // keep defaults
+      }
+      return `completedPatients:${clinicId}:${userId}`;
+    })();
+
+    // FIX #7 — warn on corrupted localStorage instead of silent catch (namespaced per receptionist+clinic)
     try {
-      const storedCompleted = localStorage.getItem("completedPatients");
+      const storedCompleted = localStorage.getItem(completedPatientsStorageKey);
       if (storedCompleted) {
         setCompletedPatients(JSON.parse(storedCompleted));
       }
     } catch (err) {
       console.warn("Corrupted completedPatients in localStorage, clearing.", err);
-      localStorage.removeItem("completedPatients");
+      localStorage.removeItem(completedPatientsStorageKey);
     }
   }, []);
 
@@ -334,56 +351,56 @@ export default function ReceptionistDashboard() {
   }, [mounted]);
   // ── Unified Real-Time Patient Status Lookup ──
   useEffect(() => {
-  if (visitType === "new" || (!phone.trim() && !name.trim())) {
-    setRevisitResults([]);
-    return;
-  }
-
-  const delayDebounceFn = setTimeout(async () => {
-    setRevisitSearchLoading(true);
-    try {
-      const token = localStorage.getItem("accessToken");
-      const searchParam = phone.trim() 
-        ? `phone=${encodeURIComponent(phone.trim())}` 
-        : `name=${encodeURIComponent(name.trim())}`;
-
-      const response = await fetch(`${API_BASE_URL}/api/patients/search?${searchParam}`, {
-        method: "GET",
-        headers: { Authorization: `Bearer ${token}` },
-      });
-
-      if (response.ok) {
-        const data = await response.json();
-        const patientsRaw = Array.isArray(data) ? data : data.patients || [];
-        
-        // Map the backend structure to match the PatientCard layout expected by your UI
-        const mappedResults: PatientCard[] = patientsRaw.map((p: any) => ({
-          name:               p.name,
-          age:                p.age,
-          gender:             p.gender,
-          phone:              p.phone,
-          address:            p.address,
-          doctorId:           p.doctorId || "",
-          doctor:             p.doctor || "",
-          department:         p.department || "",
-          lastDiagnosis:      p.lastDiagnosis || "",
-          lastReason:         p.reason || "",
-          patientId:          p.patientId || p.id, // Handles cross-compatible IDs
-          followUp:           p.followUp || "",
-          scheduledVisitType: p.scheduledVisitType || visitType,
-        }));
-
-        setRevisitResults(mappedResults);
-      }
-    } catch (error) {
-      console.error("Live lookup pipeline exception:", error);
-    } finally {
-      setRevisitSearchLoading(false);
+    // visitType includes "revisit" | "followup" only for this UI; avoid TS unreachable comparison by using a set guard
+    if (visitType === "new" || (!phone.trim() && !name.trim())) {
+      setRevisitResults([]);
+      return;
     }
-  }, 350);
 
-  return () => clearTimeout(delayDebounceFn);
-}, [phone, name, visitType, selectedRevisitPatient]);
+    const delayDebounceFn = setTimeout(async () => {
+      setRevisitSearchLoading(true);
+      try {
+        const token = localStorage.getItem("accessToken");
+        const searchParam = phone.trim()
+          ? `phone=${encodeURIComponent(phone.trim())}`
+          : `name=${encodeURIComponent(name.trim())}`;
+
+        const response = await fetch(`${API_BASE_URL}/api/patients/search?${searchParam}`, {
+          method: "GET",
+          headers: { Authorization: `Bearer ${token}` },
+        });
+
+        if (response.ok) {
+          const data = await response.json();
+          const patientsRaw = Array.isArray(data) ? data : data.patients || [];
+
+          const mappedResults: PatientCard[] = patientsRaw.map((p: any) => ({
+            name: p.name,
+            age: p.age,
+            gender: p.gender,
+            phone: p.phone,
+            address: p.address,
+            doctorId: p.doctorId || "",
+            doctor: p.doctor || "",
+            department: p.department || "",
+            lastDiagnosis: p.lastDiagnosis || "",
+            lastReason: p.reason || "",
+            patientId: p.patientId || p.id, // Handles cross-compatible IDs
+            followUp: p.followUp || "",
+            scheduledVisitType: p.scheduledVisitType || visitType,
+          }));
+
+          setRevisitResults(mappedResults);
+        }
+      } catch (error) {
+        console.error("Live lookup pipeline exception:", error);
+      } finally {
+        setRevisitSearchLoading(false);
+      }
+    }, 350);
+
+    return () => clearTimeout(delayDebounceFn);
+  }, [phone, name, visitType, selectedRevisitPatient]);
 
   // ── Load doctors ──
   useEffect(() => {
@@ -756,12 +773,19 @@ export default function ReceptionistDashboard() {
     }
   }
 
-  // Sync state transitions to client storage safely
+  // Sync state transitions to client storage safely (namespaced per receptionist+clinic)
   useEffect(() => {
-    if (mounted) {
-      try { localStorage.setItem("completedPatients", JSON.stringify(completedPatients)); } catch {}
-    }
-  }, [completedPatients, mounted]);
+    if (!mounted) return;
+      try {
+      	const clinicId = user?.clinicId;
+      	// user.id is not guaranteed to exist in our User type stored in localStorage
+      	const userId = (user as any)?.id ?? "unknown-user";
+        if (clinicId) {
+        const key = `completedPatients:${clinicId}:${userId}`;
+        localStorage.setItem(key, JSON.stringify(completedPatients));
+        }
+      } catch {}
+  }, [completedPatients, mounted, user?.clinicId, user?.id]);
 
   // Controlled queue verification hook block
   useEffect(() => {
@@ -909,8 +933,21 @@ export default function ReceptionistDashboard() {
                     Completed · {completedPatients.length}
                   </p>
                   {completedPatients.length > 0 && (
-                    <button onClick={() => { if (confirm("Clear list?")) { setCompletedPatients([]); localStorage.removeItem("completedPatients"); } }}
-                      className="text-[10px] text-rose-500 hover:text-rose-700 font-semibold">Clear</button>
+                    <button
+                      onClick={() => {
+                        if (!confirm("Clear list?")) return;
+                        setCompletedPatients([]);
+                        if (user?.clinicId) {
+                          const key = `completedPatients:${user.clinicId}:${user.id ?? "unknown-user"}`;
+                          localStorage.removeItem(key);
+                        } else {
+                          localStorage.removeItem("completedPatients");
+                        }
+                      }}
+                      className="text-[10px] text-rose-500 hover:text-rose-700 font-semibold"
+                    >
+                      Clear
+                    </button>
                   )}
                 </div>
                 {completedPatients.length === 0 ? (
@@ -1340,13 +1377,37 @@ export default function ReceptionistDashboard() {
                   {/* Phone Input */}
 <div>
   <label className="block text-[10px] font-extrabold uppercase tracking-wider text-zinc-500 mb-1">Phone *</label>
-  <input
-    type="text" required
-    value={phone}
-    onChange={(e) => setPhone(e.target.value)}
-    className="w-full rounded-xl border border-zinc-200 text-zinc-800 px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-sky-500"
-    placeholder="10-digit number"
-  />
+                    <input
+                      type="text"
+                      required
+                      inputMode="numeric"
+                      value={phone}
+                      onChange={(e) => {
+                        // Signup-like behavior: accept digits and '-' separators.
+                        // Keep only digits for validation, and auto-format with hyphens.
+                        const raw = e.target.value;
+                        const digitsOnly = raw.replace(/\D/g, "").slice(0, 10);
+
+                        // Live format: 10 digits => XXX-XXX-XXXX; otherwise partial grouping.
+                        const formatted =
+                          digitsOnly.length <= 3
+                            ? digitsOnly
+                            : digitsOnly.length <= 6
+                              ? `${digitsOnly.slice(0, 3)}-${digitsOnly.slice(3)}`
+                              : `${digitsOnly.slice(0, 3)}-${digitsOnly.slice(3, 6)}-${digitsOnly.slice(6)}`;
+
+                        setPhone(formatted);
+                      }}
+                      onBlur={() => {
+                        // If exactly 10 digits were entered, ensure full formatting.
+                        const digits = phone.replace(/\D/g, "");
+                        if (digits.length === 10) {
+                          setPhone(`${digits.slice(0, 3)}-${digits.slice(3, 6)}-${digits.slice(6, 10)}`);
+                        }
+                      }}
+                      className="w-full rounded-xl border border-zinc-200 text-zinc-800 px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-sky-500"
+                      placeholder="10-digit number (e.g. 987-654-3210)"
+                    />
 </div>
 
 {/* Name Input */}

@@ -50,6 +50,8 @@ type PatientInput = {
 
 function mapPatientToQueueItem(patient: any) {
   let parsedMedications: any = [];
+  // allergies is a String[] in DB
+
   if (patient.medications) {
     if (typeof patient.medications === "string") {
       try { parsedMedications = JSON.parse(patient.medications); } catch { parsedMedications = []; }
@@ -60,6 +62,8 @@ function mapPatientToQueueItem(patient: any) {
 
   return {
     id: patient.id,
+    allergies: Array.isArray(patient.allergies) ? patient.allergies : [],
+
     queueId: patient.queueId,
     patientId: patient.patientId,
     clinicId: patient.clinicId,
@@ -360,72 +364,162 @@ export async function getPatients(req: Request, res: Response) {
   }
 }
 
+// Keep this list identical to the frontend's ALLERGY_KEYWORDS so detection
+// behaves consistently whether it runs client-side or here on the server.
+const ALLERGY_KEYWORDS = [
+  "allergy",
+  "allergic",
+  "anaphylaxis",
+  "intolerance",
+  "hypersensitivity",
+  "rash",
+  "urticaria",
+  "penicillin",
+  "sulfa",
+  "nsaid",
+];
+
+// Pulls the actual sentence/clause around a matched keyword instead of just
+// the bare keyword, so a doctor reviewing history sees real context
+// (e.g. "Patient allergic to penicillin, develops rash") rather than just
+// disconnected tags like "Allergic", "Penicillin".
+function extractAllergySnippets(rawText: string, keywords: string[]): string[] {
+  if (!rawText) return [];
+  const chunks = rawText
+    .split(/[.!?;\n]+/)
+    .map((c) => c.trim())
+    .filter(Boolean);
+
+  const snippets: string[] = [];
+  for (const keyword of keywords) {
+    const chunk = chunks.find((c) => c.toLowerCase().includes(keyword));
+    if (chunk) {
+      const cleaned = chunk.trim();
+      snippets.push(cleaned.charAt(0).toUpperCase() + cleaned.slice(1));
+    }
+  }
+  return snippets;
+}
+
+function deriveAllergiesFromVisit(r: {
+  symptoms?: string | null;
+  chiefComplaint?: string | null;
+  notes?: string | null;
+  primaryDiagnosis?: string | null;
+}): string[] {
+  const rawText = [r.symptoms, r.chiefComplaint, r.notes, r.primaryDiagnosis]
+    .filter(Boolean)
+    .join(". ");
+  const lowered = rawText.toLowerCase();
+  const matchedKeywords = ALLERGY_KEYWORDS.filter((k) => lowered.includes(k));
+  return Array.from(new Set(extractAllergySnippets(rawText, matchedKeywords)));
+}
+
 // ── GET /api/patients/history/:phone — last 5 completed visits for a patient ──
 export async function getPatientHistory(req: Request, res: Response) {
+  const normalizePhone = (value: unknown) => {
+    return String(value ?? "").replace(/\D/g, "");
+  };
+ 
   try {
     const { phone } = req.params;
     const clinicId  = (req as AuthRequest).clinicId;
     const { excludeId } = req.query; // current visit queueId to exclude
-
+ 
     if (!phone) return res.status(400).json({ error: "Phone number is required." });
-
-    const records = await prisma.patient.findMany({
+ 
+    const decodedPhone = decodeURIComponent(phone);
+    const phoneDigits = normalizePhone(decodedPhone);
+ 
+    if (!phoneDigits) {
+      return res.status(400).json({ error: "Invalid phone number." });
+    }
+ 
+    // Phone numbers are stored with formatting (e.g. "+1 808-625-2769" or
+    // "808-625-2769") exactly as typed at intake — there's no normalized
+    // column to match against. Fetch candidates for this clinic/status and
+    // filter by normalized digits in application code instead of relying
+    // on an exact DB match against a differently-formatted string.
+    const candidates = await prisma.patient.findMany({
       where: {
-        phone: decodeURIComponent(phone),
         status: "completed",
-        ...(clinicId  ? { clinicId }                       : {}),
+        ...(clinicId ? { clinicId } : {}),
         ...(excludeId ? { queueId: { not: String(excludeId) } } : {}),
       },
       orderBy: { createdAt: "desc" },
-      take: 5,
+      // NOTE: no `allergies` field here — it does not exist in the Patient
+      // model. Selecting it previously caused a Prisma validation error
+      // (500) on every request to this endpoint. Allergies are derived
+      // below from clinical text instead.
       select: {
-        queueId:         true,
-        patientId:       true,
-        createdAt:       true,
-        reason:          true,
+        queueId:          true,
+        patientId:        true,
+        phone:            true,
+        createdAt:        true,
+        reason:           true,
         primaryDiagnosis: true,
-        chiefComplaint:  true,
-        symptoms:        true,
-        notes:           true,
-        followUp:        true,
-        tests:           true,
-        medications:     true,
-        bloodPressure:   true,
-        heartRate:       true,
-        temperature:     true,
-        visitType:       true,
+        chiefComplaint:   true,
+        symptoms:         true,
+        notes:            true,
+        followUp:         true,
+        tests:            true,
+        medications:      true,
+        bloodPressure:    true,
+        heartRate:        true,
+        temperature:      true,
+        visitType:        true,
         doctor: { select: { fullName: true } },
       },
     });
-
+ 
+    const records = candidates
+      .filter((r) => normalizePhone(r.phone) === phoneDigits)
+      .slice(0, 5);
+ 
     const history = records.map(r => {
       let meds: any[] = [];
-      if (r.medications) {
-        try { meds = typeof r.medications === "string" ? JSON.parse(r.medications) : (r.medications as any[]); } catch {}
+      try {
+        if (r.medications) {
+          meds = typeof r.medications === "string" ? JSON.parse(r.medications) : (r.medications as any[]);
+        }
+      } catch {
+        meds = [];
       }
+ 
       return {
         queueId:         r.queueId,
         patientId:       r.patientId,
-        date:            r.createdAt.toISOString(),
+        date:            r.createdAt instanceof Date ? r.createdAt.toISOString() : new Date(r.createdAt as any).toISOString(),
         reason:          r.reason,
         diagnosis:       r.primaryDiagnosis,
         chiefComplaint:  r.chiefComplaint,
         symptoms:        r.symptoms,
         notes:           r.notes,
         followUp:        r.followUp,
-        tests:           r.tests as string[],
-        medications:     meds.map((m: any) => `${m.name ?? ""} ${m.dosage ?? ""}`.trim()).filter(Boolean),
+        tests:           (Array.isArray(r.tests) ? r.tests : []) as string[],
+        medications:     meds.map((m: any) => `${m?.name ?? ""} ${m?.dosage ?? ""}`.trim()).filter(Boolean),
         bloodPressure:   r.bloodPressure,
         heartRate:       r.heartRate,
         temperature:     r.temperature,
         visitType:       r.visitType ?? "new",
         doctor:          r.doctor?.fullName ?? "",
+        // Derived from this visit's own clinical text — see deriveAllergiesFromVisit.
+        allergies:       deriveAllergiesFromVisit(r),
       };
     });
-
+ 
     return res.json({ history });
   } catch (error: any) {
-    console.error("Get patient history error:", error);
+    console.error("Get patient history error:", {
+      phone: req.params?.phone,
+      decodedPhone: (() => {
+        try { return decodeURIComponent(req.params?.phone ?? ""); } catch { return ""; }
+      })(),
+      clinicId: (req as AuthRequest).clinicId,
+      excludeId: req.query?.excludeId,
+      error,
+      stack: error?.stack,
+    });
     return res.status(500).json({ error: "Unable to fetch patient history.", details: error?.message });
   }
 }
