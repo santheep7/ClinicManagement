@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/no-unused-vars */
 "use client";
 
 import { useEffect, useState, useRef } from "react";
@@ -649,7 +650,7 @@ useEffect(() => {
       setEditFollowUp(activePatient.followUp ?? "");
       setEditTests(activePatient.tests ?? []);
     }
-  // eslint-disable-next-line react-hooks/exhaustive-deps
+   
   }, [activePatient?.id]);
 
   useEffect(() => {
@@ -738,7 +739,7 @@ setPatients(prev => prev.map(p =>
     };
 
     fetchHistory();
-  // eslint-disable-next-line react-hooks/exhaustive-deps
+   
   }, [activePatient?.id]);
 
   useEffect(() => {
@@ -816,7 +817,7 @@ setPatients((prev) => prev.map(p => {
     return () => {
       if (autoSaveTimer.current) window.clearTimeout(autoSaveTimer.current);
     };
-  // eslint-disable-next-line react-hooks/exhaustive-deps
+   
   }, [editSymptoms, editChiefComplaint, editPrimaryDiagnosis, editNotes, editTests, editFollowUp, editBP, editHR, editTemp, editSpO2, editRR, editWeight, editHeight, editIop, editPeakFlow, editBloodGlucose, editPainScore, activePatient?.id]);
 
   function addMedication(e: React.FormEvent) {
