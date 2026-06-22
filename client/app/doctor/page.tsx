@@ -1972,34 +1972,33 @@ function VitalIndicator({ status }: { status: VitalStatus }) {
     .sort((a, b) => new Date(a.followUp!).getTime() - new Date(b.followUp!).getTime());
 
   return (
-    <div className="min-h-screen flex bg-slate-50 dark:bg-zinc-950 text-zinc-900 dark:text-zinc-50 transition-colors duration-300">
+    <div className="min-h-screen flex bg-[#f0f2f5] dark:bg-zinc-950 text-zinc-900 dark:text-zinc-50 transition-colors duration-300">
       {/* Sidebar */}
-      <aside className={`bg-white dark:bg-zinc-900 border-r border-zinc-200 dark:border-zinc-800 flex flex-col justify-between transition-all duration-300 ${sidebarOpen ? "w-72 p-6" : "w-14 p-2"}`}>
+      <aside className={`bg-white dark:bg-zinc-900 border-r border-zinc-200 dark:border-zinc-800 flex flex-col justify-between transition-all duration-300 ${sidebarOpen ? "w-72 p-5" : "w-16 p-3"}`}>
         <div className="flex-1 overflow-y-auto overflow-x-hidden">
 
-          {/* Collapse toggle */}
-          <div className={`flex ${sidebarOpen ? "justify-between items-center" : "justify-center"} mb-5`}>
+          {/* Logo + Collapse */}
+          <div className={`flex ${sidebarOpen ? "items-center justify-between" : "justify-center"} mb-6`}>
             {sidebarOpen && (
-              <div className="flex items-center gap-3">
-                <div className="w-9 h-9 rounded-xl bg-gradient-to-br from-sky-500 to-indigo-600 flex items-center justify-center text-white font-extrabold text-lg shadow-md shadow-sky-500/20 shrink-0">
-                  H
+              <div className="flex items-center gap-2.5">
+                {/* Orion-style cross icon */}
+                <div className="w-9 h-9 rounded-lg bg-[#1a73e8] flex items-center justify-center shrink-0 shadow-sm">
+                  <svg className="w-5 h-5 text-white" viewBox="0 0 24 24" fill="currentColor">
+                    <path d="M12 2a1.5 1.5 0 011.5 1.5v7h7a1.5 1.5 0 010 3h-7v7a1.5 1.5 0 01-3 0v-7h-7a1.5 1.5 0 010-3h7v-7A1.5 1.5 0 0112 2z"/>
+                  </svg>
                 </div>
                 <div>
-                  <h2 className="font-extrabold text-base leading-tight tracking-wide text-transparent bg-clip-text bg-gradient-to-r from-sky-600 to-indigo-600 dark:from-sky-400 dark:to-indigo-400">
-                    Lumina Health
-                  </h2>
-                  <span className="text-[10px] font-semibold text-zinc-400 dark:text-zinc-500 uppercase tracking-widest">
-                    Hospital System
-                  </span>
+                  <h2 className="font-bold text-sm leading-tight text-zinc-800 dark:text-zinc-100">{clinicName}</h2>
+                  <span className="text-[10px] font-medium text-zinc-400 dark:text-zinc-500 uppercase tracking-widest">Hospital System</span>
                 </div>
               </div>
             )}
             <button
               onClick={() => setSidebarOpen(o => !o)}
-              className="p-2 rounded-xl hover:bg-slate-100 dark:hover:bg-zinc-800 transition-colors shrink-0"
+              className="p-1.5 rounded-lg hover:bg-slate-100 dark:hover:bg-zinc-800 transition-colors shrink-0"
               title={sidebarOpen ? "Collapse sidebar" : "Expand sidebar"}
             >
-              <svg className={`w-4 h-4 text-zinc-500 transition-transform ${sidebarOpen ? "" : "rotate-180"}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <svg className={`w-4 h-4 text-zinc-400 transition-transform ${sidebarOpen ? "" : "rotate-180"}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 19l-7-7 7-7m8 14l-7-7 7-7" />
               </svg>
             </button>
@@ -2007,69 +2006,67 @@ function VitalIndicator({ status }: { status: VitalStatus }) {
 
           {sidebarOpen && (
             <>
-              {/* User badge */}
-              <div className="mb-5 p-4 rounded-2xl bg-slate-100 dark:bg-zinc-800/60 border border-zinc-200/50 dark:border-zinc-800">
-                <p className="text-xs font-bold text-zinc-400 dark:text-zinc-500 uppercase tracking-wider mb-1">Active Session</p>
-                <h4 className="font-bold text-sm text-zinc-800 dark:text-zinc-200 truncate">{user.fullName}</h4>
-                <span className="inline-block mt-2 px-2 py-0.5 text-xs font-bold uppercase rounded-md bg-sky-100 dark:bg-sky-950 text-sky-700 dark:text-sky-300 border border-sky-200/40 dark:border-sky-800/40">
-                  {user.role}
-                </span>
-                {user.department && (
-                  <p className="text-xs text-zinc-500 dark:text-zinc-400 mt-1 font-medium">{user.department}</p>
-                )}
+              {/* Doctor avatar card */}
+              <div className="mb-5 flex items-center gap-3 p-3 rounded-2xl bg-slate-50 dark:bg-zinc-800/50 border border-zinc-100 dark:border-zinc-800">
+                <div className="w-12 h-12 rounded-full bg-gradient-to-br from-blue-400 to-indigo-600 flex items-center justify-center text-white font-bold text-base shrink-0 shadow-sm overflow-hidden">
+                  {user.fullName.charAt(0).toUpperCase()}
+                </div>
+                <div className="min-w-0">
+                  <h4 className="font-bold text-sm text-zinc-800 dark:text-zinc-100 truncate">{user.fullName}</h4>
+                  <p className="text-xs text-zinc-400 dark:text-zinc-500 truncate">{user.department || user.role}</p>
+                </div>
               </div>
 
-              {/* Stats counters */}
-              <div className="grid grid-cols-2 gap-2 mb-5">
+              {/* Stats counters — horizontal row like screenshot */}
+              <div className="flex gap-2 mb-5">
                 {[
-                  { label: "Total",    value: patients.length,                                      color: "bg-sky-50 dark:bg-sky-950/30 text-sky-700 dark:text-sky-300"          },
-                  { label: "Pending",  value: patients.filter(p => p.status === "pending").length,   color: "bg-amber-50 dark:bg-amber-950/30 text-amber-700 dark:text-amber-300"   },
-                  { label: "Treating", value: patients.filter(p => p.status === "treating").length,  color: "bg-indigo-50 dark:bg-indigo-950/30 text-indigo-700 dark:text-indigo-300"},
-                  { label: "Done",     value: patients.filter(p => p.status === "completed").length, color: "bg-emerald-50 dark:bg-emerald-950/30 text-emerald-700 dark:text-emerald-300"},
+                  { label: "Total",    value: patients.length,                                      color: "text-zinc-800 dark:text-zinc-100"   },
+                  { label: "Pending",  value: patients.filter(p => p.status === "pending").length,   color: "text-amber-500"   },
+                  { label: "Treating", value: patients.filter(p => p.status === "treating").length,  color: "text-indigo-500"  },
+                  { label: "Done",     value: patients.filter(p => p.status === "completed").length, color: "text-emerald-500" },
                 ].map(s => (
-                  <div key={s.label} className={`rounded-2xl p-3 ${s.color}`}>
-                    <p className="text-[10px] font-extrabold uppercase tracking-wider opacity-70">{s.label}</p>
-                    <p className="text-2xl font-black mt-0.5">{s.value}</p>
+                  <div key={s.label} className="flex-1 text-center">
+                    <p className={`text-xl font-black ${s.color}`}>{s.value}</p>
+                    <p className="text-[9px] font-semibold uppercase tracking-wide text-zinc-400 dark:text-zinc-500 mt-0.5">{s.label}</p>
                   </div>
                 ))}
               </div>
 
               {/* Queue list */}
               <div className="mb-5">
-                <p className="text-[10px] font-extrabold uppercase tracking-widest text-zinc-400 dark:text-zinc-500 mb-2 px-1">
-                  Queue · {patients.filter(p => p.status !== "completed").length} waiting
+                <p className="text-[10px] font-bold uppercase tracking-widest text-zinc-400 dark:text-zinc-500 mb-2 px-1">
+                  Queue — {patients.filter(p => p.status !== "completed").length} Waiting
                 </p>
-                <div className="space-y-1.5 max-h-52 overflow-y-auto pr-0.5">
+                <div className="space-y-1 max-h-56 overflow-y-auto pr-0.5">
                   {patients.filter(p => p.status !== "completed").length === 0 ? (
                     <p className="text-xs text-zinc-400 dark:text-zinc-500 italic px-1">No active patients</p>
                   ) : patients.filter(p => p.status !== "completed").map(p => (
                     <button key={p.id} onClick={() => { setActivePatient(p); setIsExamining(true); setActiveTab("overview"); }}
-                      className={`w-full text-left px-3 py-2.5 rounded-xl text-xs transition-all ${
+                      className={`w-full text-left px-3 py-2.5 rounded-xl text-xs transition-all border ${
                         activePatient?.id === p.id
-                          ? "bg-sky-100 dark:bg-sky-950/40 text-sky-700 dark:text-sky-300 font-bold"
-                          : "hover:bg-slate-100 dark:hover:bg-zinc-800 text-zinc-700 dark:text-zinc-300 font-medium"
+                          ? "bg-[#e8f0fe] dark:bg-sky-950/40 border-[#1a73e8]/30 text-[#1a73e8] dark:text-sky-300 font-bold"
+                          : "border-transparent hover:bg-slate-50 dark:hover:bg-zinc-800 text-zinc-700 dark:text-zinc-300 font-medium"
                       }`}
                     >
                       <div className="flex items-center justify-between gap-1">
-                        <span className="truncate">{p.name}</span>
-                        <span className={`shrink-0 text-[9px] font-black uppercase px-1.5 py-0.5 rounded-full ${
+                        <span className="truncate font-semibold">{p.name}</span>
+                        <span className={`shrink-0 text-[9px] font-bold uppercase px-2 py-0.5 rounded-full ${
                           p.status === "treating" ? "bg-indigo-100 dark:bg-indigo-950/40 text-indigo-700 dark:text-indigo-300" : "bg-amber-100 dark:bg-amber-950/30 text-amber-700"
                         }`}>{p.status === "treating" ? "In Prog" : "Waiting"}</span>
                       </div>
                       <p className="text-zinc-400 dark:text-zinc-500 text-[10px] mt-0.5">{p.age} y/o · {p.time}</p>
                       {p.allergies && p.allergies.length > 0 && (
-                        <span className="inline-block mt-1 text-[9px] font-black uppercase px-1.5 py-0.5 rounded-full bg-rose-100 text-rose-700">⚠ Allergy</span>
+                        <span className="inline-block mt-1 text-[9px] font-bold uppercase px-1.5 py-0.5 rounded-full bg-rose-100 text-rose-600">⚠ Allergy</span>
                       )}
                     </button>
                   ))}
                 </div>
               </div>
-
             </>
           )}
 
           {/* Nav menu */}
-          <nav className="space-y-1.5">
+          <nav className="space-y-1">
             {[
               {
                 id: "overview" as const,
@@ -2091,10 +2088,10 @@ function VitalIndicator({ status }: { status: VitalStatus }) {
               <button key={item.id}
                 onClick={() => setActiveTab(item.id)}
                 title={!sidebarOpen ? item.label : undefined}
-                className={`w-full flex items-center gap-3 px-3 py-3 rounded-xl font-semibold text-left transition-all ${
+                className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium text-left transition-all ${
                   activeTab === item.id
-                    ? "bg-gradient-to-r from-sky-50 to-sky-100/50 dark:from-sky-950/40 dark:to-transparent text-sky-600 dark:text-sky-400"
-                    : "text-zinc-600 dark:text-zinc-400 hover:bg-slate-100 dark:hover:bg-zinc-800/60"
+                    ? "bg-[#e8f0fe] dark:bg-sky-950/40 text-[#1a73e8] dark:text-sky-400 font-semibold"
+                    : "text-zinc-500 dark:text-zinc-400 hover:bg-slate-50 dark:hover:bg-zinc-800/60 hover:text-zinc-700"
                 } ${!sidebarOpen ? "justify-center" : ""}`}
               >
                 <svg className="w-5 h-5 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -2104,7 +2101,7 @@ function VitalIndicator({ status }: { status: VitalStatus }) {
                   <>
                     <span className="flex-1">{item.label}</span>
                     {"badge" in item && item.badge! > 0 && (
-                      <span className="text-[10px] font-extrabold px-1.5 py-0.5 rounded-full bg-emerald-100 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-300">
+                      <span className="text-[10px] font-bold px-1.5 py-0.5 rounded-full bg-emerald-100 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-300">
                         {item.badge}
                       </span>
                     )}
@@ -2119,7 +2116,7 @@ function VitalIndicator({ status }: { status: VitalStatus }) {
         <button
           onClick={handleLogout}
           title={!sidebarOpen ? "Logout" : undefined}
-          className={`w-full flex items-center gap-3 px-3 py-3 rounded-xl border border-zinc-200 dark:border-zinc-800 text-rose-600 dark:text-rose-400 font-semibold hover:bg-rose-50 dark:hover:bg-rose-950/20 hover:border-rose-200 transition-all mt-3 ${!sidebarOpen ? "justify-center" : ""}`}
+          className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium text-rose-500 dark:text-rose-400 hover:bg-rose-50 dark:hover:bg-rose-950/20 transition-all mt-3 ${!sidebarOpen ? "justify-center" : ""}`}
         >
           <svg className="w-5 h-5 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1" />
@@ -2129,113 +2126,92 @@ function VitalIndicator({ status }: { status: VitalStatus }) {
       </aside>
 
       {/* Main Panel */}
-      <main className="flex-1 overflow-y-auto p-10">
-        {/* Header */}
-        <header className="flex justify-between items-start mb-8">
-          <div>
-            <h1 className="text-3xl font-extrabold tracking-tight bg-gradient-to-r from-zinc-900 to-zinc-700 dark:from-zinc-50 dark:to-zinc-300 bg-clip-text text-transparent">
-              {isDoctor ? `Dr. ${user.fullName.split(" ")[0]}'s Consultation Office` : "Patient Care Reception Desk"}
-            </h1>
-            <p className="text-zinc-500 dark:text-zinc-400 mt-1.5 font-medium">
+      <main className="flex-1 overflow-y-auto p-8">
+        {/* Page Header */}
+        {isDoctor && activeTab === "overview" && !activePatient && (
+          <div className="mb-7">
+            <h1 className="text-3xl font-bold text-zinc-800 dark:text-zinc-100">Dr. {user.fullName.replace(/^Dr\.?\s*/i, "")}&apos;s Consultation Office</h1>
+            <p className="text-sm text-zinc-400 dark:text-zinc-500 mt-1">
               Today is {new Date().toLocaleDateString("en-US", { weekday: "long", year: "numeric", month: "long", day: "numeric" })}
             </p>
           </div>
-          <div className="flex items-center gap-4">
-            <span className="w-2.5 h-2.5 rounded-full bg-emerald-500 animate-ping"></span>
-            <span className="text-sm font-bold text-zinc-500 dark:text-zinc-400 bg-slate-100 dark:bg-zinc-800 border border-zinc-200/50 dark:border-zinc-800 px-3 py-1.5 rounded-full">
-              System Online
-            </span>
-          </div>
-        </header>
+        )}
+       
 
         {isDoctor ? (
           <>
             {/* DOCTOR DASHBOARD */}
             {activeTab === "overview" && !activePatient && (
-              <div className="grid grid-cols-1 xl:grid-cols-3 gap-8">
+              <div className="grid grid-cols-1 xl:grid-cols-3 gap-6">
                 {/* Left 2 Columns */}
-                <div className="xl:col-span-2 space-y-8">
+                <div className="xl:col-span-2 space-y-6">
                   {/* Consultation queue list card */}
-                  <div className="bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 rounded-3xl p-6 shadow-sm">
-                    <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 mb-6">
-                      <div>
-                        <h3 className="text-lg font-black tracking-tight text-zinc-800 dark:text-zinc-200">
-                          Consultation Schedule & Worklist
-                        </h3>
-                        <p className="text-xs text-zinc-400 dark:text-zinc-500 mt-1">
-                          {"Manage today's consultations, update vitals, and write prescriptions."}
-                        </p>
-                      </div>
+                  <div className="bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 rounded-2xl p-6 shadow-sm">
+                    <div className="mb-5">
+                      <h3 className="text-base font-semibold text-zinc-800 dark:text-zinc-200">
+                        Consultation Schedule &amp; Worklist
+                      </h3>
+                      <p className="text-xs text-zinc-400 dark:text-zinc-500 mt-0.5">
+                        Consultation schedule and worklist for pacer to embrace your consultation schedule to one patient.
+                      </p>
                     </div>
 
-                    <div className="space-y-3.5 max-h-[460px] overflow-y-auto pr-1">
+                    <div className="space-y-3 max-h-[420px] overflow-y-auto pr-1">
                       {activeQueue.length > 0 ? (
                         activeQueue.map((patient) => {
                           const isActive = (activePatient as Patient | null)?.id === patient.id;
                           return (
                             <div
                               key={patient.id}
-                              className={`p-5 rounded-2xl border transition-all duration-200 flex flex-col md:flex-row md:items-center justify-between gap-4 cursor-pointer hover:border-sky-500/30 ${
+                              className={`p-4 rounded-xl border transition-all duration-200 flex flex-col sm:flex-row sm:items-center justify-between gap-4 cursor-pointer ${
                                 isActive
-                                  ? "bg-sky-50/40 dark:bg-sky-950/20 border-sky-500 shadow-sm"
-                                  : "bg-transparent border-zinc-200 dark:border-zinc-800"
+                                  ? "bg-[#e8f0fe]/60 dark:bg-sky-950/20 border-[#1a73e8]/30"
+                                  : "bg-[#f8f9fa] dark:bg-zinc-800/40 border-zinc-100 dark:border-zinc-800 hover:border-zinc-300"
                               }`}
                               onClick={() => { setActivePatient(patient); setIsExamining(true); }}
                             >
-                              <div className="flex items-start gap-4">
-                                <div className="w-12 h-12 rounded-2xl bg-gradient-to-br from-indigo-50 to-indigo-100 dark:from-zinc-800 dark:to-zinc-800/40 border border-zinc-200/50 dark:border-zinc-800 flex items-center justify-center font-extrabold text-indigo-600 dark:text-indigo-400">
-                                  {patient.name.split(" ").map(n => n[0]).join("")}
+                              <div className="flex items-start gap-3">
+                                <div className="w-10 h-10 rounded-full bg-gradient-to-br from-indigo-400 to-blue-600 flex items-center justify-center font-bold text-white text-sm shrink-0">
+                                  {patient.name.split(" ").map(n => n[0]).join("").slice(0,2)}
                                 </div>
                                 <div>
                                   <div className="flex items-center gap-2 flex-wrap">
-                                    <h4 className="font-extrabold text-base text-zinc-800 dark:text-zinc-200">{patient.name}</h4>
-                                    <span className="text-xs px-2 py-0.5 rounded bg-slate-100 dark:bg-zinc-800 font-bold text-zinc-500 dark:text-zinc-400">
+                                    <h4 className="font-semibold text-sm text-zinc-800 dark:text-zinc-200">{patient.name}</h4>
+                                    <span className="text-[10px] px-1.5 py-0.5 rounded bg-zinc-100 dark:bg-zinc-800 font-medium text-zinc-500 dark:text-zinc-400">
                                       {patient.patientId || patient.id}
                                     </span>
                                     {patient.visitType && patient.visitType !== "new" && (
-                                      <span className={`text-[10px] px-2 py-0.5 rounded-full font-black ${
+                                      <span className={`text-[10px] px-2 py-0.5 rounded-full font-semibold ${
                                         patient.visitType === "revisit" ? "bg-orange-100 text-orange-700" : "bg-purple-100 text-purple-700"
                                       }`}>{patient.visitType === "revisit" ? "🔁 Revisit" : "📋 Follow-up"}</span>
                                     )}
                                     {patient.allergies && patient.allergies.length > 0 && (
-                                      <span className="text-[10px] px-2 py-0.5 rounded-full font-black bg-rose-100 text-rose-700 animate-pulse">
-                                        ⚠ Allergy
-                                      </span>
-                                    )}
-                                    {patient.pastVisits && patient.pastVisits.length > 0 && (
-                                      <span className="text-[10px] px-2 py-0.5 rounded-full font-black bg-sky-100 text-sky-700">
-                                        {patient.pastVisits.length} past visit{patient.pastVisits.length > 1 ? "s" : ""}
-                                      </span>
+                                      <span className="text-[10px] px-2 py-0.5 rounded-full font-semibold bg-rose-100 text-rose-700 animate-pulse">⚠ Allergy</span>
                                     )}
                                   </div>
-                                  <p className="text-xs font-semibold text-zinc-400 dark:text-zinc-500 mt-1">
-                                      {patient.age ? `${patient.age} y/o` : '—'} • {patient.gender || 'unknown'} • Checked in at {patient.time}
+                                  <p className="text-xs text-zinc-400 dark:text-zinc-500 mt-0.5">
+                                    {patient.age ? `${patient.age} y/o` : '—'} • {patient.gender || 'unknown'} • Checked in at {patient.time}
                                   </p>
-                                  <p className="text-sm font-medium text-zinc-500 dark:text-zinc-400 mt-1.5 line-clamp-1">
-                                    <span className="text-zinc-400 dark:text-zinc-600 font-bold uppercase text-[10px] tracking-wider mr-1">Reason:</span>
+                                  <p className="text-xs text-zinc-500 dark:text-zinc-400 mt-1">
+                                    <span className="font-semibold uppercase text-[10px] tracking-wider text-zinc-400 mr-1">Reason:</span>
                                     {patient.reason}
                                   </p>
-                                  {patient.followUp && (
-                                    <span className="inline-flex items-center gap-1 mt-2 px-2 py-1 rounded-full bg-amber-100 dark:bg-amber-950/30 text-amber-700 dark:text-amber-300 text-[10px] font-black uppercase">
-                                      Revisit {new Date(patient.followUp).toLocaleDateString("en-US", { month: "short", day: "numeric" })}
-                                    </span>
-                                  )}
                                 </div>
                               </div>
 
-                              <div className="flex items-center gap-3 self-end md:self-center">
-                                <span className={`px-3 py-1 rounded-full text-xs font-extrabold ${
+                              <div className="flex items-center gap-2.5 self-end sm:self-center">
+                                <span className={`px-3 py-1 rounded-full text-[11px] font-semibold ${
                                   patient.status === "completed"
-                                    ? "bg-emerald-100 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-300"
+                                    ? "bg-emerald-100 dark:bg-emerald-950/40 text-emerald-700"
                                     : patient.status === "treating"
-                                    ? "bg-indigo-100 dark:bg-indigo-950/40 text-indigo-700 dark:text-indigo-300"
-                                    : "bg-amber-100 dark:bg-amber-950/40 text-amber-700 dark:text-amber-300"
+                                    ? "bg-indigo-100 dark:bg-indigo-950/40 text-indigo-700"
+                                    : "bg-amber-100 dark:bg-amber-950/40 text-amber-700"
                                 }`}>
                                   {patient.status === "treating" ? "In Progress" : patient.status}
                                 </span>
                                 <button
                                   onClick={(e) => { e.stopPropagation(); setActivePatient(patient); setIsExamining(true); }}
-                                  className="px-4 py-2 text-xs font-bold text-white bg-indigo-600 hover:bg-indigo-700 dark:bg-indigo-600/90 dark:hover:bg-indigo-700 rounded-xl transition-all shadow-md shadow-indigo-500/10"
+                                  className="px-4 py-2 text-xs font-semibold text-white bg-[#1a73e8] hover:bg-[#1557b0] rounded-lg transition-all shadow-sm"
                                 >
                                   Examine Patient
                                 </button>
@@ -2244,56 +2220,59 @@ function VitalIndicator({ status }: { status: VitalStatus }) {
                           );
                         })
                       ) : (
-                        <div className="text-center py-10 bg-slate-50 dark:bg-zinc-800/20 rounded-2xl border border-dashed border-zinc-200 dark:border-zinc-800">
-                          <p className="text-zinc-400 font-medium">No active patients in queue.</p>
+                        <div className="text-center py-10 bg-slate-50 dark:bg-zinc-800/20 rounded-xl border border-dashed border-zinc-200 dark:border-zinc-800">
+                          <p className="text-zinc-400 text-sm">No active patients in queue.</p>
                         </div>
                       )}
                     </div>
                   </div>
 
                   {/* Weekly Chart */}
-                  <div className="bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 rounded-3xl p-6 shadow-sm">
-                    <div className="flex justify-between items-center mb-6">
-                      <div>
-                        <h3 className="text-lg font-black tracking-tight text-zinc-800 dark:text-zinc-200">
-                          Weekly Consultations Volume
-                        </h3>
-                        <p className="text-xs text-zinc-400 dark:text-zinc-500">
-                          Visualization of total checked-in patients vs treated cases.
-                        </p>
-                      </div>
-                      <span className="text-xs font-bold text-sky-500 bg-sky-100/50 dark:bg-sky-950/30 px-3 py-1 rounded-full">
-                        Last 5 Days
+                  <div className="bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 rounded-2xl p-6 shadow-sm">
+                    <div className="flex justify-between items-center mb-5">
+                      <h3 className="text-base font-semibold text-zinc-800 dark:text-zinc-200">
+                        Weekly Consultations Volume
+                      </h3>
+                      <span className="text-xs font-medium text-zinc-500 bg-zinc-100 dark:bg-zinc-800 dark:text-zinc-400 px-3 py-1 rounded-full flex items-center gap-1">
+                        Last 5 Days <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7"/></svg>
                       </span>
                     </div>
 
-                    <div className="h-44 w-full flex items-end justify-between px-4 pb-2 border-b border-zinc-100 dark:border-zinc-800">
+                    <div className="h-44 w-full flex items-end justify-around px-2 pb-2">
                       {[
-                        { day: "Mon", count: 12, height: "h-[65%]" },
-                        { day: "Tue", count: 15, height: "h-[85%]" },
-                        { day: "Wed", count: 8,  height: "h-[45%]" },
-                        { day: "Thu", count: 18, height: "h-[100%]" },
-                        { day: "Fri", count: 14, height: "h-[75%]" },
+                        { day: "Mon", count: 3, pct: 80 },
+                        { day: "Tue", count: 3, pct: 72 },
+                        { day: "Wed", count: 2, pct: 56 },
+                        { day: "Thu", count: 2, pct: 58 },
+                        { day: "Fri", count: 1, pct: 34 },
                       ].map((bar, i) => (
-                        <div key={i} className="flex flex-col items-center gap-2 flex-1 max-w-[50px]">
-                          <span className="text-[10px] font-extrabold text-zinc-400">{bar.count}</span>
-                          <div className={`${bar.height} w-7 bg-gradient-to-t from-sky-500 to-indigo-600 rounded-t-lg transition-all duration-500 hover:opacity-90`}></div>
-                          <span className="text-xs font-bold text-zinc-500 dark:text-zinc-400 mt-1">{bar.day}</span>
+                        <div key={i} className="flex flex-col items-center gap-1.5 w-14">
+                          <span className="text-[11px] font-semibold text-zinc-500 dark:text-zinc-400">{bar.count}</span>
+                          <div
+                            className="w-10 rounded-t-md transition-all duration-500"
+                            style={{
+                              height: `${bar.pct}%`,
+                              background: i === 4 ? "#bfdbfe" : "#3b82f6",
+                            }}
+                          ></div>
+                          <span className="text-xs text-zinc-400 dark:text-zinc-500">{bar.day}</span>
                         </div>
                       ))}
                     </div>
+                    {/* Y-axis lines */}
+                    <div className="border-t border-zinc-100 dark:border-zinc-800 mt-2"></div>
                   </div>
                 </div>
 
-                {/* Right Column: empty placeholder */}
+                {/* Right Column: Rx placeholder */}
                 <div className="xl:col-span-1">
-                  <div className="h-full bg-slate-50 dark:bg-zinc-900/40 border border-dashed border-zinc-200 dark:border-zinc-800 rounded-3xl p-10 text-center flex flex-col justify-center items-center">
-                    <div className="w-16 h-16 rounded-2xl bg-indigo-50 dark:bg-zinc-800/60 border border-zinc-200/50 dark:border-zinc-800 flex items-center justify-center text-indigo-600 dark:text-indigo-400 text-2xl font-black mb-4">
-                      Rx
+                  <div className="h-full bg-white dark:bg-zinc-900 border border-dashed border-zinc-200 dark:border-zinc-800 rounded-2xl p-10 text-center flex flex-col justify-center items-center shadow-sm">
+                    <div className="mb-4">
+                      <span className="text-5xl font-black text-[#1a73e8] dark:text-blue-400 tracking-tight" style={{fontFamily:"serif"}}>R<span className="text-3xl align-super">x</span></span>
                     </div>
-                    <h4 className="font-extrabold text-lg text-zinc-800 dark:text-zinc-200">No Patient Selected</h4>
-                    <p className="text-xs text-zinc-400 dark:text-zinc-500 mt-2 max-w-[240px] leading-relaxed">
-                      {"Click \"Examine Patient\" on any item in your list to open the full EHR panel."}
+                    <h4 className="font-semibold text-base text-zinc-700 dark:text-zinc-200">No Patient Selected</h4>
+                    <p className="text-xs text-zinc-400 dark:text-zinc-500 mt-2 max-w-[200px] leading-relaxed">
+                      Click &quot;Examine Patient&quot; on any item in your list to open the full EHR panel.
                     </p>
                   </div>
                 </div>
@@ -2479,9 +2458,9 @@ function VitalIndicator({ status }: { status: VitalStatus }) {
                   </div>
                 </div>
 
-                <div className="p-8">
+                <div className="p-5">
                   {/* EHR inner tab bar */}
-                  <div className="flex items-center gap-1 p-1 bg-slate-100 dark:bg-zinc-800/60 rounded-2xl w-fit mb-6">
+                  <div className="flex items-center gap-1 p-1 bg-slate-100 dark:bg-zinc-800/60 rounded-2xl w-fit mb-4">
                     {([
                       { id: "notes",   label: "Clinical Notes",   icon: "M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" },
                       { id: "history", label: `Visit History${activePatient.pastVisits && activePatient.pastVisits.length > 0 ? ` (${activePatient.pastVisits.length})` : ""}`, icon: "M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" },
@@ -2505,7 +2484,7 @@ function VitalIndicator({ status }: { status: VitalStatus }) {
 
                   {/* Allergy alert */}
                   {activePatient.allergies && activePatient.allergies.length > 0 && (
-                    <div className="flex items-start gap-3 p-4 rounded-2xl bg-rose-50 dark:bg-rose-950/20 border border-rose-200 dark:border-rose-800/40 mb-6">
+                    <div className="flex items-start gap-3 p-3 rounded-xl bg-rose-50 dark:bg-rose-950/20 border border-rose-200 dark:border-rose-800/40 mb-3">
                       <span className="text-xl shrink-0">⚠️</span>
                       <div>
                         <p className="text-sm font-extrabold text-rose-700 dark:text-rose-300">Allergy / Sensitivity Alert</p>
@@ -2642,10 +2621,10 @@ function VitalIndicator({ status }: { status: VitalStatus }) {
 
                   {/* NOTES TAB */}
                   {ehrTab === "notes" && activePatient.status !== "completed" && (
-                    <div className="space-y-8">
-                      {/* Vitals Row — dynamically rendered per department */}
+                    <div className="space-y-4">
+                      {/* Vitals Row — compact, 4 cols on md+ */}
                       <section>
-                        <div className="flex items-center justify-between mb-4">
+                        <div className="flex items-center justify-between mb-2">
                           <h4 className="text-[10px] font-extrabold uppercase tracking-widest text-zinc-400 dark:text-zinc-500">Diagnostic Vitals</h4>
                           {user?.department && (
                             <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-zinc-100 dark:bg-zinc-800 text-zinc-500 dark:text-zinc-400">
@@ -2653,34 +2632,23 @@ function VitalIndicator({ status }: { status: VitalStatus }) {
                             </span>
                           )}
                         </div>
-                        <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-6 gap-4">
-                          {/* Department-specific vital inputs */}
+                        <div className="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-6 xl:grid-cols-8 gap-2">
                           {getDeptVitals().map((vf) => {
                             const colorParts = vf.color.split(" ");
                             const labelColor = colorParts.filter(c => c.startsWith("text-")).join(" ");
                             const bgBorder   = colorParts.filter(c => !c.startsWith("text-")).join(" ");
                             const status     = getVitalStatus(vf.key);
-                            // Override card border when out of range
                             const outlineCls = status === "high"
                               ? "ring-1 ring-red-300 dark:ring-red-700"
                               : status === "low"
                               ? "ring-1 ring-blue-300 dark:ring-blue-700"
                               : "";
-
                             const val = getVitalValue(vf.key);
                             const isEmpty = val === "" || val === null || val === undefined;
-
                             return (
-                              <div key={vf.key} className={`p-4 border rounded-2xl transition-all ${bgBorder} ${outlineCls}`}>
-                                <div className="flex items-start justify-between gap-2 mb-1">
-                                  <div className="min-w-0">
-                                    <span className={`text-[10px] font-bold ${labelColor}`}>{vf.label}</span>
-                                    {/* optimal range text next to indicator */}
-                                    <div className="text-[9px] font-bold text-zinc-500 dark:text-zinc-400 mt-0.5 leading-tight">
-                                      {vf.key === "weight" ? "Optimal: 50–100 kg" :
-                                      vf.key === "height" ? "Optimal: 120–200 cm" : ""}
-                                    </div>
-                                  </div>
+                              <div key={vf.key} className={`p-2.5 border rounded-xl transition-all ${bgBorder} ${outlineCls}`}>
+                                <div className="flex items-center justify-between mb-0.5">
+                                  <span className={`text-[9px] font-bold ${labelColor} leading-tight`}>{vf.label}</span>
                                   <VitalIndicator status={status} />
                                 </div>
                                 <input
@@ -2688,65 +2656,67 @@ function VitalIndicator({ status }: { status: VitalStatus }) {
                                   step={vf.step}
                                   value={isEmpty ? "" : val}
                                   onChange={(e) => setVitalValue(vf.key, e.target.value)}
-                                  placeholder=""
-                                  className="w-full bg-transparent border-0 p-0 text-base font-black focus:outline-none text-zinc-800 dark:text-zinc-100"
+                                  placeholder="—"
+                                  className="w-full bg-transparent border-0 p-0 text-sm font-black focus:outline-none text-zinc-800 dark:text-zinc-100"
                                 />
-                                <span className="text-[10px] text-zinc-400">{vf.unit}</span>
+                                <span className="text-[9px] text-zinc-400">{vf.unit}</span>
                               </div>
                             );
                           })}
-                          {/* Static demographic cards */}
-                          <div className="p-4 bg-slate-50 dark:bg-zinc-800/40 border border-zinc-100 dark:border-zinc-800 rounded-2xl">
-                            <span className="text-[10px] font-bold text-zinc-400 block mb-1">Age</span>
-                            <p className="text-base font-black text-zinc-800 dark:text-zinc-100">{activePatient.age}</p>
-                            <span className="text-[10px] text-zinc-400">years</span>
+                          {/* Demographic mini-cards */}
+                          <div className="p-2.5 bg-slate-50 dark:bg-zinc-800/40 border border-zinc-100 dark:border-zinc-800 rounded-xl">
+                            <span className="text-[9px] font-bold text-zinc-400 block mb-0.5">Age</span>
+                            <p className="text-sm font-black text-zinc-800 dark:text-zinc-100">{activePatient.age}</p>
+                            <span className="text-[9px] text-zinc-400">yrs</span>
                           </div>
-                          <div className="p-4 bg-slate-50 dark:bg-zinc-800/40 border border-zinc-100 dark:border-zinc-800 rounded-2xl">
-                            <span className="text-[10px] font-bold text-zinc-400 block mb-1">Gender</span>
-                            <p className="text-base font-black text-zinc-800 dark:text-zinc-100">{activePatient.gender}</p>
-                            <span className="text-[10px] text-zinc-400">biological</span>
+                          <div className="p-2.5 bg-slate-50 dark:bg-zinc-800/40 border border-zinc-100 dark:border-zinc-800 rounded-xl">
+                            <span className="text-[9px] font-bold text-zinc-400 block mb-0.5">Gender</span>
+                            <p className="text-sm font-black text-zinc-800 dark:text-zinc-100">{activePatient.gender}</p>
                           </div>
-                          <div className="p-4 bg-slate-50 dark:bg-zinc-800/40 border border-zinc-100 dark:border-zinc-800 rounded-2xl">
-                            <span className="text-[10px] font-bold text-zinc-400 block mb-1">Follow-up Date</span>
+                          <div className="p-2.5 bg-slate-50 dark:bg-zinc-800/40 border border-zinc-100 dark:border-zinc-800 rounded-xl">
+                            <span className="text-[9px] font-bold text-zinc-400 block mb-0.5">Follow-up</span>
                             <input type="date" value={editFollowUp} onChange={(e) => setEditFollowUp(e.target.value)}
-                              className="w-full bg-transparent border-0 p-0 text-xs font-black focus:outline-none text-zinc-800 dark:text-zinc-100" />
+                              className="w-full bg-transparent border-0 p-0 text-[10px] font-black focus:outline-none text-zinc-800 dark:text-zinc-100" />
                           </div>
                         </div>
                       </section>
 
-                      {/* Clinical Notes */}
-                      <section>
-                        <h4 className="text-[10px] font-extrabold uppercase tracking-widest text-zinc-400 dark:text-zinc-500 mb-4">Clinical Assessment</h4>
-                        <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
+                      {/* Main 2-col layout: Left = Clinical Notes, Right = Investigations + Prescription */}
+                      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+
+                        {/* LEFT: Clinical Assessment */}
+                        <section className="space-y-3">
+                          <h4 className="text-[10px] font-extrabold uppercase tracking-widest text-zinc-400 dark:text-zinc-500">Clinical Assessment</h4>
                           <div>
-                            <label className="text-[10px] font-extrabold uppercase text-zinc-400 tracking-wider mb-2 block">Chief Complaint</label>
+                            <label className="text-[10px] font-extrabold uppercase text-zinc-400 tracking-wider mb-1 block">Chief Complaint</label>
                             <input type="text" value={editChiefComplaint} onChange={(e) => setEditChiefComplaint(e.target.value)}
                               placeholder="Primary reason for visit in patient's own words"
-                              className="w-full p-3.5 text-sm bg-slate-50 dark:bg-zinc-800/30 border border-zinc-200/80 dark:border-zinc-800 rounded-2xl focus:border-sky-500 focus:outline-none placeholder-zinc-400" />
+                              className="w-full p-2.5 text-sm bg-slate-50 dark:bg-zinc-800/30 border border-zinc-200/80 dark:border-zinc-800 rounded-xl focus:border-sky-500 focus:outline-none placeholder-zinc-400" />
                           </div>
                           <div>
-                            <label className="text-[10px] font-extrabold uppercase text-zinc-400 tracking-wider mb-2 block">Primary Diagnosis</label>
+                            <label className="text-[10px] font-extrabold uppercase text-zinc-400 tracking-wider mb-1 block">Primary Diagnosis</label>
                             <input type="text" value={editPrimaryDiagnosis} onChange={(e) => setEditPrimaryDiagnosis(e.target.value)}
                               placeholder="Provisional diagnosis or clinical impression"
-                              className="w-full p-3.5 text-sm bg-slate-50 dark:bg-zinc-800/30 border border-zinc-200/80 dark:border-zinc-800 rounded-2xl focus:border-sky-500 focus:outline-none placeholder-zinc-400" />
+                              className="w-full p-2.5 text-sm bg-slate-50 dark:bg-zinc-800/30 border border-zinc-200/80 dark:border-zinc-800 rounded-xl focus:border-sky-500 focus:outline-none placeholder-zinc-400" />
                           </div>
                           <div>
-                            <label className="text-[10px] font-extrabold uppercase text-zinc-400 tracking-wider mb-2 block">Symptoms</label>
-                            <textarea rows={3} value={editSymptoms} onChange={(e) => setEditSymptoms(e.target.value)}
+                            <label className="text-[10px] font-extrabold uppercase text-zinc-400 tracking-wider mb-1 block">Symptoms</label>
+                            <textarea rows={2} value={editSymptoms} onChange={(e) => setEditSymptoms(e.target.value)}
                               placeholder="Duration, severity, onset, associated symptoms..."
-                              className="w-full p-3.5 text-sm bg-slate-50 dark:bg-zinc-800/30 border border-zinc-200/80 dark:border-zinc-800 rounded-2xl focus:border-sky-500 focus:outline-none placeholder-zinc-400 resize-none" />
+                              className="w-full p-2.5 text-sm bg-slate-50 dark:bg-zinc-800/30 border border-zinc-200/80 dark:border-zinc-800 rounded-xl focus:border-sky-500 focus:outline-none placeholder-zinc-400 resize-none" />
                           </div>
                           <div>
-                            <label className="text-[10px] font-extrabold uppercase text-zinc-400 tracking-wider mb-2 block">Progress Notes</label>
-                            <textarea rows={3} value={editNotes} onChange={(e) => setEditNotes(e.target.value)}
+                            <label className="text-[10px] font-extrabold uppercase text-zinc-400 tracking-wider mb-1 block">Progress Notes</label>
+                            <textarea rows={2} value={editNotes} onChange={(e) => setEditNotes(e.target.value)}
                               placeholder="Exam findings, treatment plan, observations..."
-                              className="w-full p-3.5 text-sm bg-slate-50 dark:bg-zinc-800/30 border border-zinc-200/80 dark:border-zinc-800 rounded-2xl focus:border-sky-500 focus:outline-none placeholder-zinc-400 resize-none" />
+                              className="w-full p-2.5 text-sm bg-slate-50 dark:bg-zinc-800/30 border border-zinc-200/80 dark:border-zinc-800 rounded-xl focus:border-sky-500 focus:outline-none placeholder-zinc-400 resize-none" />
                           </div>
-                        </div>
-                      </section>
+                        </section>
 
-                      {/* Investigations + Prescription */}
-                      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                        {/* RIGHT: Investigations + Prescription stacked */}
+                        <div className="space-y-4">
+                        {/* Investigations + Prescription */}
+                      <div className="grid grid-cols-1 gap-4">
                         {/* Investigations */}
                         <section className="p-5 bg-slate-50 dark:bg-zinc-800/20 border border-zinc-200/80 dark:border-zinc-800 rounded-2xl space-y-4">
                           <div className="flex items-center justify-between">
@@ -2995,6 +2965,8 @@ function VitalIndicator({ status }: { status: VitalStatus }) {
                           </div>
                         </section>
                       </div>
+                        </div>{/* end right column */}
+                      </div>{/* end 2-col grid */}
 
                       {/* Bottom action bar */}
                       <div className="flex items-center justify-between pt-2 border-t border-zinc-100 dark:border-zinc-800">
