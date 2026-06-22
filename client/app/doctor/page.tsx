@@ -194,6 +194,25 @@ export default function Dashboard() {
   const [sidebarOpen, setSidebarOpen] = useState(true);
   const [ehrTab, setEhrTab] = useState<"notes" | "history">("notes");
   const [showAlertPopup, setShowAlertPopup] = useState(false);
+  // Refs reserved for future alert focus/timer enhancements.
+  // Keeping them would trigger unused-var warnings, so they are intentionally removed for now.
+
+
+  useEffect(() => {
+    if (!showAlertPopup) return;
+
+    const close = () => setShowAlertPopup(false);
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.key === "Escape") close();
+    };
+
+    document.addEventListener("keydown", onKeyDown);
+
+    return () => {
+      document.removeEventListener("keydown", onKeyDown);
+    };
+  }, [showAlertPopup]);
+
 
   const [activePatient, setActivePatient] = useState<Patient | null>(null);
   const [, setIsExamining] = useState(false);
@@ -828,7 +847,7 @@ setPatients((prev) => prev.map(p => {
     setPatients(patients.map(p => p.id === activePatient.id ? updatedPatient : p));
     setNewTestName("");
   }
-
+445
   function removeTest(index: number) {
     if (!activePatient) return;
     const updatedTests = (activePatient.tests || []).filter((_, idx) => idx !== index);
@@ -2229,6 +2248,15 @@ function VitalIndicator({ status }: { status: VitalStatus }) {
                   <div className="flex items-center gap-3">
                     {activePatient.status === "completed" ? (
                       <>
+                        <button
+                          type="button"
+                          onClick={() => setShowAlertPopup(v => !v)}
+                          disabled={!activePatient.allergies || activePatient.allergies.length === 0}
+                          className="px-3 py-2 bg-rose-100 hover:bg-rose-200 disabled:opacity-50 disabled:cursor-not-allowed dark:bg-rose-950/40 dark:hover:bg-rose-900/50 text-rose-700 dark:text-rose-300 rounded-xl text-xs font-extrabold transition-all border border-rose-200 dark:border-rose-800/50"
+                          title={activePatient.allergies?.length ? "View allergy note" : "No allergies"}
+                        >
+                          ⚠ Allergy
+                        </button>
                         <button
                           onClick={downloadPrescriptionPdf}
                           className="px-5 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-xs font-extrabold transition-all shadow-md shadow-indigo-500/15 flex items-center gap-2"

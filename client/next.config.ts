@@ -1,7 +1,11 @@
 import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
-  /* config options here */
+  // Fix Next.js/Turbopack workspace root inference when repo contains multiple lockfiles
+  turbopack: {
+    root: 'c:/Hospital',
+  },
 };
+
 
 export default nextConfig;
